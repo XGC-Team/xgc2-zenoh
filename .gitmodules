@@ -1,0 +1,30 @@
+[submodule "rmw_zenoh"]
+	path = rmw_zenoh
+	url = https://github.com/ros2/rmw_zenoh.git
+[submodule "zenoh"]
+	path = zenoh
+	url = https://github.com/eclipse-zenoh/zenoh.git
+[submodule "zenoh-backend-influxdb"]
+	path = zenoh-backend-influxdb
+	url = https://github.com/eclipse-zenoh/zenoh-backend-influxdb.git
+[submodule "zenoh-cpp"]
+	path = zenoh-cpp
+	url = https://github.com/eclipse-zenoh/zenoh-cpp.git
+[submodule "zenoh-pico"]
+	path = zenoh-pico
+	url = https://github.com/eclipse-zenoh/zenoh-pico.git
+[submodule "zenoh-plugin-dds"]
+	path = zenoh-plugin-dds
+	url = https://github.com/eclipse-zenoh/zenoh-plugin-dds.git
+[submodule "zenoh-plugin-mqtt"]
+	path = zenoh-plugin-mqtt
+	url = https://github.com/eclipse-zenoh/zenoh-plugin-mqtt.git
+[submodule "zenoh-plugin-ros2dds"]
+	path = zenoh-plugin-ros2dds
+	url = https://github.com/eclipse-zenoh/zenoh-plugin-ros2dds.git
+[submodule "zenoh-plugin-webserver"]
+	path = zenoh-plugin-webserver
+	url = https://github.com/eclipse-zenoh/zenoh-plugin-webserver.git
+[submodule "zenoh-python"]
+	path = zenoh-python
+	url = https://github.com/eclipse-zenoh/zenoh-python.git

@@ -1,39 +1,34 @@
 # xgc2-zenoh
 
-#### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+本仓库用 Git submodule 固定 XGC2 相关的 Zenoh 生态源码版本。
 
-#### 软件架构
-软件架构说明
+## 使用
 
+```bash
+git clone --recurse-submodules <repo-url>
+```
 
-#### 安装教程
+已有仓库初始化 submodule：
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+```bash
+git submodule update --init --recursive
+```
 
-#### 使用说明
+查看当前固定版本：
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+```bash
+git submodule status
+```
 
-#### 参与贡献
+## Submodules
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
-
-
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+- `rmw_zenoh`: ROS 2 的 Zenoh RMW 实现，用于让 ROS 2 通过 Zenoh 进行通信。
+- `zenoh`: Zenoh 核心实现，提供数据分发、查询和存储抽象。
+- `zenoh-backend-influxdb`: Zenoh 的 InfluxDB 后端，用于把 Zenoh 数据写入或查询时间序列数据库。
+- `zenoh-cpp`: Zenoh C++ API，用于在 C++ 程序中接入 Zenoh。
+- `zenoh-pico`: 轻量级 Zenoh 客户端实现，面向嵌入式和资源受限设备。
+- `zenoh-plugin-dds`: Zenoh DDS 插件，用于桥接 DDS 数据空间。
+- `zenoh-plugin-mqtt`: Zenoh MQTT 插件，用于桥接 MQTT 客户端和 Zenoh 网络。
+- `zenoh-plugin-ros2dds`: Zenoh ROS 2/DDS 插件，用于在 Zenoh 和 ROS 2/DDS 之间转发数据。
+- `zenoh-plugin-webserver`: Zenoh WebServer 插件，用于通过 HTTP/Web 接口访问 Zenoh 能力。
+- `zenoh-python`: Zenoh Python API，用于在 Python 程序中接入 Zenoh。
