@@ -24,7 +24,7 @@ permissions:
 #       rospy/runtime adaptation is fabricated here. If a bionic consumer is ever
 #       required, CI must supply that runtime formally.
 #     jammy / noble -> OPEN: no consumer runtime pinned yet; C SDK only.
-python_consumer_rows: focal
+#   python consumer rows: focal only (see the matrix comment above)
 
 jobs:
   matrix:
