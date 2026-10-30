@@ -74,11 +74,11 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-latest
-            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.2
             distribution: bionic
           - arch: arm64
             runner: ubuntu-24.04-arm
-            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.2
             distribution: bionic
           - arch: amd64
             runner: ubuntu-latest

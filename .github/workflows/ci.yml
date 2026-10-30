@@ -49,7 +49,7 @@ jobs:
           # stay declared OPEN: they fail explicitly at the cmake floor until the
           # xgc2-images bionic toolchain ships cmake >= 3.16 (image-side supply).
           for distro, image in (
-              ("bionic", "ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0"),
+              ("bionic", "ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.2"),
               ("focal", "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0"),
               ("jammy", "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0"),
               ("noble", "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0"),
