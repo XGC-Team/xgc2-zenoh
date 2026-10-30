@@ -7,12 +7,24 @@ name: ci
 # ever installed on a foreign architecture and nothing is masked.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# SUPPORT MATRIX (explicit, no fabricated passes)
+#   C SDK (libzenohc + zenoh-cpp headers): bionic, focal, jammy, noble x amd64, arm64.
+#     Every row builds natively on its own runner and installs + runs a pub/sub round
+#     trip there. A row is Open until its own CI job is green; nothing is masked.
+#   Python consumer binding: only where a Python consumer actually exists.
+#     focal / py3.8 / amd64 and focal / py3.8 / arm64  -> supported (built + interop gate)
+#     bionic -> NO Python consumer (python3.6 only); the C SDK ships alone, and no
+#       rospy/runtime adaptation is fabricated here. If a bionic consumer is ever
+#       required, CI must supply that runtime formally.
+#     jammy / noble -> OPEN: no consumer runtime pinned yet; C SDK only.
+python_consumer_rows: focal
 
 jobs:
   matrix:
@@ -25,8 +37,13 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           rows = []
+          # acados REAL native multiarch rows: the same image tag resolves per
+          # runner architecture, so an arm64 runner builds natively.
           for distro, image in (
-              ("focal", "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a"),
+              ("bionic", "ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0"),
+              ("focal", "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0"),
+              ("jammy", "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0"),
+              ("noble", "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0"),
           ):
               for arch, runner in (("amd64", "ubuntu-latest"), ("arm64", "ubuntu-24.04-arm")):
                   rows.append({"distribution": distro, "arch": arch, "runner": runner, "image": image})
@@ -49,13 +66,20 @@ jobs:
       - name: build prefix and package (native, inside the distribution image)
         run: |
           install -d .ci/build-manifests
-          docker run --rm --network host \
+          # The images declare no ENTRYPOINT (Cmd=[bash]); the shell is explicit.
+          docker run --rm --network host --entrypoint bash \
             --mount "type=bind,src=${PWD},dst=/w" -w /w \
             "${{ matrix.image }}" -euo pipefail -c '
               .xgc2/scripts/build_zenoh_cross.sh --out /w/.ci/prefix --arch "${{ matrix.arch }}"
-              .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
-              ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh \
-                --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              if [[ "${{ matrix.distribution }}" == "focal" ]]; then
+                .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
+                ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh \
+                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              else
+                # No Python consumer on this distribution: the C SDK ships alone.
+                .xgc2/scripts/build_deb.sh \
+                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              fi
             '
       - name: compliance
         run: ./.xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
@@ -65,7 +89,11 @@ jobs:
           # Native execution: the installed library must load, link and complete a
           # session round trip on this runner architecture.
           .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
-          python3 -c "import zenoh; print('zenoh python binding', zenoh.__version__)"
+          if [[ "${{ matrix.distribution }}" == "focal" ]]; then
+            python3 -c "import zenoh; print('zenoh python binding', zenoh.__version__)"
+          else
+            echo "C SDK only on ${{ matrix.distribution }} (no Python consumer)"
+          fi
       - name: trusted build manifest
         run: |
           python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
