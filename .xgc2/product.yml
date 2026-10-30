@@ -1,0 +1,39 @@
+schema: xgc2.product.v1
+id: xgc2-zenoh
+name: XGC2 zenoh SDK
+version: 1.8.0-1
+kind: toolchain-apt
+summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers, cross-built for
+  aarch64 (focal glibc 2.31) and built natively for amd64, for TRO onboard algorithm
+  and telemetry consumers.
+apt:
+  distribution: focal
+  install:
+  - xgc2-zenoh
+  packages:
+  - xgc2-zenoh
+  depends:
+  - libc6
+  - libgcc-s1
+  - libstdc++6
+usage:
+  install: 'sudo apt update
+
+    sudo apt install xgc2-zenoh
+
+    '
+  smoke_test: 'test -f /opt/xgc2/zenoh/include/zenoh.h && test -f /opt/xgc2/zenoh/include/zenoh.hxx
+    && test -f /opt/xgc2/zenoh/lib/libzenohc.so'
+  notes: 'TRO consumers pass -DTRO_ZENOH_PREFIX=/opt/xgc2/zenoh with -DTRO_WITH_ZENOH=ON;
+    the composite links ${TRO_ZENOH_PREFIX}/lib/libzenohc.so by file path (no soname)
+    and compiles ZENOHCXX_ZENOHC, so both the C library and the zenoh-cpp headers live
+    in this single prefix. Versions are frozen in zenoh.lock and must not be re-resolved.'
+ownership:
+  paths:
+  - /opt/xgc2/zenoh
+  - /usr/lib/cmake/xgc2_zenoh
+release:
+  apt_versions:
+    focal: 1.8.0-1~focal
+conflicts:
+  apt_packages: []

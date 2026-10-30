@@ -1,0 +1,40 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Expected .xgc2/product.yml version
+        required: true
+        type: string
+      expected_source_sha:
+        description: Expected zenoh-c source commit SHA (zenoh.lock ZENOH_C_SHA)
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  release:
+    runs-on: [self-hosted, linux, x64, xgc]
+    container:
+      image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+    steps:
+      - uses: actions/checkout@v4
+      - name: assert expected version and pin
+        run: |
+          version="$(sed -n 's/^version:[[:space:]]*//p' .xgc2/product.yml | head -n1)"
+          test "${version}" = "${{ inputs.expected_version }}"
+          grep -q "^ZENOH_C_SHA=${{ inputs.expected_source_sha }}$" zenoh.lock
+      - name: build package
+        run: |
+          .xgc2/scripts/build_zenoh_cross.sh --out "$PWD/.ci/arm64"
+          .xgc2/scripts/build_deb.sh --prefix "$PWD/.ci/arm64/zenoh-arm64" --arch arm64 --output "$PWD/.ci/debs"
+      - name: package compliance
+        run: ./.xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xgc2-zenoh-release-debs
+          path: .ci/debs/*

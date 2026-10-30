@@ -1,0 +1,7 @@
+# Zenoh C build inputs
+
+The SDK stage builds the upstream [Zenoh C 1.8.0](https://github.com/eclipse-zenoh/zenoh-c/releases/tag/1.8.0) release from source on Focal, for the target architecture. The upstream tag resolves to commit `7b8478618861972b9f0115da75e694c9f0a2af5a`; its GitHub codeload archive is pinned by SHA-256 in `build_zenoh_sdk.sh`. The release's Zenoh dependency is pinned to the upstream [Zenoh 1.8.0 commit](https://github.com/eclipse-zenoh/zenoh/commit/29b3e63a311ab55f438280f3e71c6268b6f115cc).
+
+The upstream C 1.8.0 manifest refers to a release branch, while its committed lockfile refers to a 1.7.2 main revision. The build script changes those manifest references to the 1.8.0 commit. `Cargo.lock` is the minimal result of resolving that change from the upstream lock. `opaque-Cargo.lock` adds the helper's one extra dependency. Both lockfiles and the source archive are verified against SHA-256 before fetching; Cargo verifies crate checksums, downloads both locked closures and builds offline. The upstream build copies the root lock to the opaque helper and resolves its one extra package offline; the resulting helper lock must match `opaque-Cargo.lock` exactly.
+
+The controlled image supplies Rust/Cargo 1.93.0, the version selected by the upstream `rust-toolchain.toml`. Shared-memory and unstable features match the upstream 1.8.0 C ABI headers. The installed SDK is build-only. Its `.xgc2-zenoh-sdk` identity and `SHA256SUMS` are checked before a cached SDK is reused. No binary from an unverified local checkout is part of this recipe.

@@ -1,0 +1,112 @@
+name: ci
+
+# Native-matrix CI. Each job builds AND runs on its own architecture: a cross-built
+# artifact is never installed on the wrong host, and an unverified platform ABI is
+# reported as Open rather than masked.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILDER_IMAGE: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+
+jobs:
+  pins:
+    runs-on: [self-hosted, linux, x64, xgc]
+    steps:
+      - uses: actions/checkout@v4
+      - name: frozen pins present
+        run: |
+          test -s zenoh.lock
+          grep -q '^ZENOH_C_SHA=7b8478618861972b9f0115da75e694c9f0a2af5a$' zenoh.lock
+          grep -q '^ZENOH_RUST_SHA=29b3e63a311ab55f438280f3e71c6268b6f115cc$' zenoh.lock
+          grep -q '^CARGO_LOCK_SHA256=981a0ad256895aa52f41e6cbeecd34b0cbe1cda1c66350e78a5b192394c37123$' zenoh.lock
+          grep -q '^OPAQUE_CARGO_LOCK_SHA256=d8fec3d78270f8304914c069435c123014b56bc5963d838c20e0d80be93e7183$' zenoh.lock
+          sha256sum -c <<<"$(sed -n 's/^CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/Cargo.lock"
+          sha256sum -c <<<"$(sed -n 's/^OPAQUE_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/opaque-Cargo.lock"
+
+  # Real target-runtime validation: build, install the deb on the SAME architecture,
+  # link a program against the installed SDK and run an actual pub/sub round trip.
+  c-sdk:
+    needs: pins
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: [self-hosted, linux, x64, xgc]
+            distro: focal
+          - arch: arm64
+            runner: [self-hosted, linux, arm64, xgc]
+            distro: focal
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+    steps:
+      - uses: actions/checkout@v4
+      - name: build prefix for this architecture
+        run: .xgc2/scripts/build_zenoh_cross.sh --out "$PWD/.ci/prefix" --arch "${{ matrix.arch }}"
+      - name: package
+        run: .xgc2/scripts/build_deb.sh --prefix "$PWD/.ci/prefix/zenoh-${{ matrix.arch }}" --arch "${{ matrix.arch }}" --output "$PWD/.ci/debs"
+      - name: compliance
+        run: .xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
+      - name: install on this architecture and run pub/sub
+        run: |
+          deb="$(ls "$PWD"/.ci/debs/*.deb | head -n1)"
+          dpkg -i "${deb}"
+          # Native execution only: the installed library must load and pass a real
+          # session round trip on this runner architecture.
+          .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xgc2-zenoh-deb-${{ matrix.arch }}-${{ matrix.distro }}
+          path: .ci/debs/*
+
+  # Python binding: the 1.8.0 binding is only usable where a wheel exists for the
+  # runtime. Unsupported runtime/arch pairs fail explicitly here; they are never
+  # reported as passing.
+  python-binding:
+    needs: pins
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.8"
+            arch: arm64
+            runner: [self-hosted, linux, arm64, xgc]
+            supported: "yes"
+          - python: "3.8"
+            arch: amd64
+            runner: [self-hosted, linux, x64, xgc]
+            supported: "yes"
+          - python: "3.10"
+            arch: arm64
+            runner: [self-hosted, linux, arm64, xgc]
+            supported: "open"
+          - python: "3.12"
+            arch: amd64
+            runner: [self-hosted, linux, x64, xgc]
+            supported: "open"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: support matrix gate
+        run: |
+          if [[ "${{ matrix.supported }}" != "yes" ]]; then
+            echo "Python ${{ matrix.python }} / ${{ matrix.arch }} binding is OPEN (no verified artifact)." >&2
+            echo "This combination is not supported yet; it must not be treated as passing." >&2
+            exit 1
+          fi
+      - name: build and verify binding
+        run: .xgc2/scripts/build_python_binding.sh --python "${{ matrix.python }}" --arch "${{ matrix.arch }}" --out "$PWD/.ci/py"
+      - name: interop gate (C SDK session <-> Python binding)
+        run: .xgc2/scripts/python_interop_gate.sh --prefix /opt/xgc2/zenoh --python "${{ matrix.python }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xgc2-zenoh-py${{ matrix.python }}-${{ matrix.arch }}
+          path: .ci/py/*
