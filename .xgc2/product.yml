@@ -26,7 +26,7 @@ apt:
   - libstdc++6
 # Python binding support matrix for the matching 1.8.0 binding. Only pairs listed
 # here may produce an artifact; every other runtime/arch pair must fail in CI.
-python_bindings: 3.8/arm64,3.8/amd64
+# The executable binding matrix is pinned in zenoh.lock (ZENOH_PYTHON_BINDINGS).
 usage:
   install: 'sudo apt update
 

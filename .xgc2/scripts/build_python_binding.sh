@@ -13,7 +13,7 @@ lock="${repo_root}/zenoh.lock"
 py=""; arch=""; out=""
 while (( $# )); do case "$1" in --python) py="$2"; shift 2;; --arch) arch="$2"; shift 2;; --out) out="$2"; shift 2;; *) echo "unknown $1" >&2; exit 2;; esac; done
 [[ -n "${py}" && -n "${arch}" && -n "${out}" ]] || { echo 'usage: build_python_binding.sh --python X --arch arm64|amd64 --out DIR' >&2; exit 2; }
-supported="$(sed -n 's/^python_bindings:[[:space:]]*//p' "${repo_root}/.xgc2/product.yml" | head -n1 | tr -d '\"')"
+supported="$(sed -n 's/^ZENOH_PYTHON_BINDINGS=//p' "${lock}" | head -n1)"
 case ",${supported}," in
   *",${py}/${arch},"*) ;;
   *) echo "Python ${py} / ${arch} is not a supported binding in this product (supported: ${supported})" >&2; exit 1 ;;
