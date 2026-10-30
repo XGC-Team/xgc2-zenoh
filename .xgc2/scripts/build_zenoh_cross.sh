@@ -29,9 +29,13 @@ while (( $# )); do
   esac
 done
 [[ -n "${out}" && "${out}" == /* ]] || { echo '--out must be an absolute path' >&2; exit 2; }
-case "${arch}" in arm64) rust_target=aarch64-unknown-linux-gnu; cc=aarch64-linux-gnu-gcc; cxx=aarch64-linux-gnu-g++ ;;
-               amd64) rust_target=x86_64-unknown-linux-gnu; cc=gcc; cxx=g++ ;;
+case "${arch}" in arm64) rust_target=aarch64-unknown-linux-gnu; cross_cc=aarch64-linux-gnu-gcc; cross_cxx=aarch64-linux-gnu-g++ ;;
+               amd64) rust_target=x86_64-unknown-linux-gnu; cross_cc=gcc; cross_cxx=g++ ;;
                *) echo 'unsupported arch' >&2; exit 2 ;; esac
+# Native runners build natively; only a foreign target needs the cross toolchain.
+host_arch="$(uname -m)"; [[ "${host_arch}" == "aarch64" ]] && host_arch=arm64
+[[ "${host_arch}" == "x86_64" ]] && host_arch=amd64
+if [[ "${host_arch}" == "${arch}" ]]; then native=1; cc=gcc; cxx=g++; cross_pkgs=""; else native=0; cc="${cross_cc}"; cxx="${cross_cxx}"; cross_pkgs="gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross"; fi
 
 get() { sed -n "s/^$1=//p" "${lock}" | head -n 1; }
 zenoh_c_sha="$(get ZENOH_C_SHA)"; zenoh_rust_sha="$(get ZENOH_RUST_SHA)"
@@ -67,7 +71,7 @@ docker run --rm \
   -e RUST_TOOLCHAIN="${rust_toolchain}" -e GLIBC_BASELINE="${glibc_baseline}" \
   -e ZENOH_CPP_VERSION="${cpp_version}" -e ZENOH_CPP_SHA="${cpp_sha}" \
   -e RUST_TARGET="${rust_target}" -e CC_TARGET="${cc}" -e CXX_TARGET="${cxx}" \
-  -e PREFIX_NAME="zenoh-${arch}" -e CARGO_BUILD_JOBS="${jobs}" \
+  -e CROSS_PKGS="${cross_pkgs}" -e PREFIX_NAME="zenoh-${arch}" -e CARGO_BUILD_JOBS="${jobs}" \
   -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
   --entrypoint bash "${image_id}" -euo pipefail -c '
     set -euo pipefail
@@ -75,7 +79,7 @@ docker run --rm \
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends \
       build-essential cmake ninja-build curl unzip xz-utils ca-certificates git \
-      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
+      ${CROSS_PKGS}
 
     # The image ships a rustup toolchain whose sysroot has no cross target std, so
     # the pinned standalone toolchain is installed unconditionally into /opt/rust
@@ -146,7 +150,8 @@ EOF
     cmake --install /work-build
     cp -a /in/unpacked/zenoh-cpp/include/. "/out/${PREFIX_NAME}/include/"
     mkdir -p "/out/${PREFIX_NAME}/lib/cmake"
-    cp -a /in/unpacked/zenoh-cpp/lib/cmake/zenohcxx "/out/${PREFIX_NAME}/lib/cmake/" 2>/dev/null || true
+    [[ -d /in/unpacked/zenoh-cpp/lib/cmake/zenohcxx ]] || { echo "zenoh-cpp cmake package missing from the pinned archive" >&2; exit 1; }
+    cp -a /in/unpacked/zenoh-cpp/lib/cmake/zenohcxx "/out/${PREFIX_NAME}/lib/cmake/"
     printf "zenoh-c source=%s zenoh=%s rust=%s arch=%s lock=%s opaque=%s glibc<=%s\n" \
       "${ZENOH_C_SHA}" "${ZENOH_RUST_SHA}" "${RUST_TOOLCHAIN}" "${RUST_TARGET}" \
       "${CARGO_LOCK_SHA}" "${OPAQUE_LOCK_SHA}" "${GLIBC_BASELINE}" > "/out/${PREFIX_NAME}/.xgc2-zenoh-sdk"

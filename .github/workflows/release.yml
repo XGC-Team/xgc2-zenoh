@@ -1,5 +1,9 @@
 name: release
 
+# Mirrors the acados release contract consumed by the central release-orchestrator
+# (xgc2-apt-release). The orchestrator supplies the expected version/source and the
+# dependency-set digest; publication itself is the central APT step, not a
+# repo-local uploader.
 on:
   workflow_dispatch:
     inputs:
@@ -8,33 +12,95 @@ on:
         required: true
         type: string
       expected_source_sha:
-        description: Expected zenoh-c source commit SHA (zenoh.lock ZENOH_C_SHA)
+        description: Expected source commit SHA of this repository
         required: true
+        type: string
+      prepare_action:
+        description: Release-train action
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - compatibility-verify
+      apt_overlay_url:
+        description: Optional release-scoped staging APT base URL
+        required: false
+        default: ""
+        type: string
+      dependency_set_digest:
+        description: SHA256 of the resolved release-train dependency set
+        required: false
+        default: ""
         type: string
 
 permissions:
   actions: read
   contents: read
 
+env:
+  XGC2_APT_OVERLAY_URL: ${{ inputs.apt_overlay_url }}
+  XGC2_DEPENDENCY_SET_DIGEST: ${{ inputs.dependency_set_digest }}
+
 jobs:
-  release:
-    runs-on: [self-hosted, linux, x64, xgc]
-    container:
-      image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+  contract:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: assert expected version and pin
+      - name: assert expected version, source and dependency set
         run: |
           version="$(sed -n 's/^version:[[:space:]]*//p' .xgc2/product.yml | head -n1)"
-          test "${version}" = "${{ inputs.expected_version }}"
-          grep -q "^ZENOH_C_SHA=${{ inputs.expected_source_sha }}$" zenoh.lock
-      - name: build package
+          test "${version}" = "${{ inputs.expected_version }}" || { echo "product version ${version} != expected ${{ inputs.expected_version }}" >&2; exit 1; }
+          head="$(git rev-parse HEAD)"
+          test "${head}" = "${{ inputs.expected_source_sha }}" || { echo "HEAD ${head} != expected ${{ inputs.expected_source_sha }}" >&2; exit 1; }
+          if [[ -n "${XGC2_APT_OVERLAY_URL}" ]]; then
+            test -n "${XGC2_DEPENDENCY_SET_DIGEST}" || { echo 'apt_overlay_url requires a dependency_set_digest' >&2; exit 1; }
+          fi
+          if [[ "${{ inputs.prepare_action }}" == "compatibility-verify" ]]; then
+            echo 'compatibility-verify: no publication, contract checked only'
+          fi
+
+  build:
+    needs: contract
+    if: ${{ inputs.prepare_action == 'release' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+            distribution: focal
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+            distribution: focal
+    steps:
+      - uses: actions/checkout@v4
+      - name: build, package and smoke on this architecture
         run: |
-          .xgc2/scripts/build_zenoh_cross.sh --out "$PWD/.ci/arm64"
-          .xgc2/scripts/build_deb.sh --prefix "$PWD/.ci/arm64/zenoh-arm64" --arch arm64 --output "$PWD/.ci/debs"
-      - name: package compliance
-        run: ./.xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
+          install -d .ci/build-manifests
+          docker run --rm --network host --mount "type=bind,src=${PWD},dst=/w" -w /w "${{ matrix.image }}" -euo pipefail -c '
+            .xgc2/scripts/build_zenoh_cross.sh --out /w/.ci/prefix --arch "${{ matrix.arch }}"
+            .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
+            ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+          '
+          sudo dpkg -i .ci/debs/*.deb
+          .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
+          python3 -c "import zenoh; print('zenoh python binding', zenoh.__version__)"
+      - name: trusted build manifest
+        run: |
+          python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
+            --deb-dir .ci/debs --output-dir .ci/build-manifests \
+            --product xgc2-zenoh \
+            --product-version "$(sed -n 's/^version:[[:space:]]*//p' .xgc2/product.yml | head -n1)" \
+            --distribution "${{ matrix.distribution }}" --architecture "${{ matrix.arch }}" \
+            --source-sha "${GITHUB_SHA}" --ci-run-id "${GITHUB_RUN_ID}" \
+            --ci-workflow "${GITHUB_WORKFLOW}" --ci-workflow-ref "${GITHUB_REF}"
       - uses: actions/upload-artifact@v4
         with:
-          name: xgc2-zenoh-release-debs
-          path: .ci/debs/*
+          name: xgc2-zenoh-${{ matrix.distribution }}-${{ matrix.arch }}
+          path: |
+            .ci/debs/*.deb
+            .ci/build-manifests/*

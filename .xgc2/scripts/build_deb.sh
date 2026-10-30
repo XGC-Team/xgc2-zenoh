@@ -58,10 +58,27 @@ for pkg in zenohc zenohcxx; do
 done
 mkdir -p "${pkg_root}/etc/ld.so.conf.d"
 printf '%s\n' "${install_prefix}/lib" > "${pkg_root}/etc/ld.so.conf.d/xgc2-zenoh.conf"
+# The matching zenoh-python 1.8.0 binding travels inside this package so the
+# unified 1.8.0 supply installs the C SDK and the Python telemetry binding from
+# the same APT artifact.
+if [[ -n "${ZENOH_PYTHON_WHEEL_DIR:-}" ]]; then
+  shopt -s nullglob
+  wheels=("${ZENOH_PYTHON_WHEEL_DIR}"/*.whl)
+  (( ${#wheels[@]} > 0 )) || { echo "no python wheel produced in ${ZENOH_PYTHON_WHEEL_DIR}" >&2; exit 1; }
+  mkdir -p "${pkg_root}${install_prefix}/python"
+  cp -a "${wheels[@]}" "${pkg_root}${install_prefix}/python/"
+fi
 cat > "${pkg_root}/DEBIAN/postinst" <<'POST'
 #!/bin/sh
 set -e
 ldconfig 2>/dev/null || true
+if [ -d /opt/xgc2/zenoh/python ]; then
+  for wheel in /opt/xgc2/zenoh/python/*.whl; do
+    [ -e "$wheel" ] || continue
+    python3 -m pip install --no-index --no-deps "$wheel" >/dev/null 2>&1 || {
+      echo "xgc2-zenoh: python binding wheel present but pip install failed: $wheel" >&2; }
+  done
+fi
 exit 0
 POST
 cat > "${pkg_root}/DEBIAN/postrm" <<'POST'
