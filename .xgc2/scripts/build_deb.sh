@@ -65,26 +65,27 @@ if [[ -n "${ZENOH_PYTHON_WHEEL_DIR:-}" ]]; then
   shopt -s nullglob
   wheels=("${ZENOH_PYTHON_WHEEL_DIR}"/*.whl)
   (( ${#wheels[@]} > 0 )) || { echo "no python wheel produced in ${ZENOH_PYTHON_WHEEL_DIR}" >&2; exit 1; }
-  mkdir -p "${pkg_root}${install_prefix}/python"
-  cp -a "${wheels[@]}" "${pkg_root}${install_prefix}/python/"
+  # Stage the binding as ordinary dpkg-owned files (acados template shape): no
+  # wheel shell left in the payload and no pip run at postinst time.
+  site="${pkg_root}/usr/lib/python3/dist-packages"
+  mkdir -p "${site}"
+  wheel_root="$(mktemp -d)"
+  trap 'rm -rf -- "${wheel_root}"' EXIT
+  ( cd "${wheel_root}" && unzip -q "${wheels[0]}" ) || { echo "cannot unpack ${wheels[0]}" >&2; exit 1; }
+  [[ -d "${wheel_root}/zenoh" ]] || { echo "wheel has no zenoh package" >&2; exit 1; }
+  cp -a "${wheel_root}/zenoh" "${site}/"
+  for dist in "${wheel_root}"/*.dist-info; do [[ -d "${dist}" ]] && cp -a "${dist}" "${site}/"; done
 fi
 cat > "${pkg_root}/DEBIAN/postinst" <<'POST'
 #!/bin/sh
 set -e
-ldconfig 2>/dev/null || true
-if [ -d /opt/xgc2/zenoh/python ]; then
-  for wheel in /opt/xgc2/zenoh/python/*.whl; do
-    [ -e "$wheel" ] || continue
-    python3 -m pip install --no-index --no-deps "$wheel" >/dev/null 2>&1 || {
-      echo "xgc2-zenoh: python binding wheel present but pip install failed: $wheel" >&2; }
-  done
-fi
+ldconfig
 exit 0
 POST
 cat > "${pkg_root}/DEBIAN/postrm" <<'POST'
 #!/bin/sh
 set -e
-ldconfig 2>/dev/null || true
+ldconfig
 exit 0
 POST
 chmod 0755 "${pkg_root}/DEBIAN/postinst" "${pkg_root}/DEBIAN/postrm"
