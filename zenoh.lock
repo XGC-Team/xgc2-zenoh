@@ -18,5 +18,12 @@ VENDORED_CRATE_COUNT=483
 ZENOH_PYTHON_VERSION=1.8.0
 ZENOH_PYTHON_REPOSITORY=https://github.com/eclipse-zenoh/zenoh-python
 ZENOH_PYTHON_SHA=b4da0c084cca370172710454db1ef4cd63c1759b
-ZENOH_PYTHON_CARGO_LOCK_SHA256=a6dfc20e5d3ab0f391345212ea5b1988eedadd3ca071a293321869e7181d45d7
+# Cargo.lock for the adapted zenoh-python manifest set (.xgc2 patch applied:
+# abi3-py38 + frozen rev pins + pinned maturin). Upstream's shipped lock is
+# a6dfc20e...; the adapted lock keeps every crates.io pin and rewrites only the
+# two zenoh git deps to rev=ZENOH_RUST_SHA.
+ZENOH_PYTHON_PATCH_SHA256=12dcf2436d6733a00465c260205992f0a83a65cc8c6f2c6a28aac4121074f375
+ZENOH_PYTHON_UPSTREAM_CARGO_LOCK_SHA256=a6dfc20e5d3ab0f391345212ea5b1988eedadd3ca071a293321869e7181d45d7
+ZENOH_PYTHON_CARGO_LOCK_SHA256=7138e9d60f60a3fa6643cd6a4e4cfa3e242129e56a8ecec60dd7321a4d4dee63
 ZENOH_PYTHON_ARCHIVE_SHA256=fbef68874c8f38ee95ab76ed0587fecd60a2f651b05f1fc96a49df2b56266f66
+ZENOH_C_ARCHIVE_SHA256=0ee86bbb03b0964cfe08e247fd117cad0e55bbe022b63f8f7188bee146536c64

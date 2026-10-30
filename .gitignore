@@ -1,0 +1,4 @@
+.ci/
+debs/
+*.pyc
+__pycache__/

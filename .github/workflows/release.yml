@@ -67,28 +67,76 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Same native support matrix as ci.yml: every row builds inside its own
+        # distro container. bionic rows stay declared OPEN: they fail explicitly
+        # at the cmake floor until the xgc2-images bionic toolchain ships
+        # cmake >= 3.16 (image-side supply, never a product bootstrap).
         include:
           - arch: amd64
             runner: ubuntu-latest
-            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0
+            distribution: bionic
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0
+            distribution: bionic
+          - arch: amd64
+            runner: ubuntu-latest
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
             distribution: focal
           - arch: arm64
             runner: ubuntu-24.04-arm
-            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
             distribution: focal
+          - arch: amd64
+            runner: ubuntu-latest
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0
+            distribution: jammy
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0
+            distribution: jammy
+          - arch: amd64
+            runner: ubuntu-latest
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
+            distribution: noble
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
+            distribution: noble
     steps:
       - uses: actions/checkout@v4
-      - name: build, package and smoke on this architecture
+      - name: verify frozen pins
+        run: |
+          sha256sum -c <<<"$(sed -n 's/^CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/Cargo.lock"
+          sha256sum -c <<<"$(sed -n 's/^OPAQUE_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/opaque-Cargo.lock"
+      - name: build, package, install and smoke INSIDE the target container
         run: |
           install -d .ci/build-manifests
-          docker run --rm --network host --mount "type=bind,src=${PWD},dst=/w" -w /w "${{ matrix.image }}" -euo pipefail -c '
-            .xgc2/scripts/build_zenoh_cross.sh --out /w/.ci/prefix --arch "${{ matrix.arch }}"
-            .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
-            ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
-          '
-          sudo dpkg -i .ci/debs/*.deb
-          .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
-          python3 -c "import zenoh; print('zenoh python binding', zenoh.__version__)"
+          docker run --rm --network host --entrypoint bash \
+            --mount "type=bind,src=${PWD},dst=/w" -w /w \
+            -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
+            "${{ matrix.image }}" -euo pipefail -c '
+              .xgc2/scripts/build_zenoh.sh --out /w/.ci/prefix --jobs "$(nproc)"
+              if [[ "${{ matrix.distribution }}" == "focal" ]]; then
+                .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
+                ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh \
+                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              else
+                .xgc2/scripts/build_deb.sh \
+                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              fi
+              dpkg -i /w/.ci/debs/*.deb
+              .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
+              if [[ "${{ matrix.distribution }}" == "focal" ]]; then
+                python3 -c "import importlib.metadata, sys, zenoh; v=importlib.metadata.version(\"eclipse-zenoh\"); assert v == \"1.8.0\", v; print(\"zenoh python binding\", v, \"on\", sys.version.split()[0])"
+                .xgc2/scripts/python_interop_gate.sh --prefix /opt/xgc2/zenoh --python 3.8
+              else
+                echo "C SDK only on ${{ matrix.distribution }} (no Python consumer)"
+              fi
+            '
+      - name: compliance
+        run: ./.xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
       - name: trusted build manifest
         run: |
           python3 .xgc2/scripts/xgc2_artifact_manifest.py build \

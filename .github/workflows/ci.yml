@@ -16,8 +16,15 @@ permissions:
 
 # SUPPORT MATRIX (explicit, no fabricated passes)
 #   C SDK (libzenohc + zenoh-cpp headers): bionic, focal, jammy, noble x amd64, arm64.
-#     Every row builds natively on its own runner and installs + runs a pub/sub round
-#     trip there. A row is Open until its own CI job is green; nothing is masked.
+#     Every row builds natively inside its own distro container and installs +
+#     runs a pub/sub round trip there. A row is Open until its own CI job is
+#     green; nothing is masked.
+#   bionic -> OPEN (unmet toolchain gate, fails explicitly, never fake-passed):
+#     zenoh-c 1.8.0 requires cmake >= 3.16 while the current xgc2-build-bionic-*
+#     images ship the distro cmake 3.10, so the bionic cells fail at the build
+#     script's explicit cmake floor check. The fix is an xgc2-images toolchain
+#     supply, NOT a product-side bootstrap; the cells stay declared and red
+#     until the image carries a conforming cmake.
 #   Python consumer binding: only where a Python consumer actually exists.
 #     focal / py3.8 / amd64 and focal / py3.8 / arm64  -> supported (built + interop gate)
 #     bionic -> NO Python consumer (python3.6 only); the C SDK ships alone, and no
@@ -38,7 +45,9 @@ jobs:
           import json
           rows = []
           # acados REAL native multiarch rows: the same image tag resolves per
-          # runner architecture, so an arm64 runner builds natively.
+          # runner architecture, so an arm64 runner builds natively. bionic rows
+          # stay declared OPEN: they fail explicitly at the cmake floor until the
+          # xgc2-images bionic toolchain ships cmake >= 3.16 (image-side supply).
           for distro, image in (
               ("bionic", "ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0"),
               ("focal", "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0"),
@@ -63,17 +72,20 @@ jobs:
         run: |
           sha256sum -c <<<"$(sed -n 's/^CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/Cargo.lock"
           sha256sum -c <<<"$(sed -n 's/^OPAQUE_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/opaque-Cargo.lock"
+          sha256sum -c <<<"$(sed -n 's/^ZENOH_PYTHON_PATCH_SHA256=//p' zenoh.lock)  .xgc2/zenoh-python-1.8.0/py38-abi3-and-pins.patch"
+          sha256sum -c <<<"$(sed -n 's/^ZENOH_PYTHON_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-python-1.8.0/Cargo.lock"
       - name: build, package, install and run INSIDE the target container
         run: |
           install -d .ci/build-manifests
           # Host supplies only the native architecture and Docker. Everything that
           # proves the artifact (build, dpkg install, link, pub/sub, Python interop)
-          # runs inside the same distro+arch image, so a Bionic/Focal package is
-          # never validated on a newer host OS and Py3.8 is never proven by Py3.12.
+          # runs inside the same distro+arch image, so a distro package is never
+          # validated on a newer host OS and Py3.8 is never proven by Py3.12.
           docker run --rm --network host --entrypoint bash \
             --mount "type=bind,src=${PWD},dst=/w" -w /w \
+            -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             "${{ matrix.image }}" -euo pipefail -c '
-              .xgc2/scripts/build_zenoh_cross.sh --out /w/.ci/prefix --arch "${{ matrix.arch }}"
+              .xgc2/scripts/build_zenoh.sh --out /w/.ci/prefix --jobs "$(nproc)"
               if [[ "${{ matrix.distribution }}" == "focal" ]]; then
                 .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
                 ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh \
@@ -85,7 +97,7 @@ jobs:
               dpkg -i /w/.ci/debs/*.deb
               .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
               if [[ "${{ matrix.distribution }}" == "focal" ]]; then
-                python3 -c "import zenoh; print(\"zenoh python binding\", zenoh.__version__)"
+                python3 -c "import importlib.metadata, sys, zenoh; v=importlib.metadata.version(\"eclipse-zenoh\"); assert v == \"1.8.0\", v; print(\"zenoh python binding\", v, \"on\", sys.version.split()[0])"
                 .xgc2/scripts/python_interop_gate.sh --prefix /opt/xgc2/zenoh --python 3.8
               else
                 echo "C SDK only on ${{ matrix.distribution }} (no Python consumer)"

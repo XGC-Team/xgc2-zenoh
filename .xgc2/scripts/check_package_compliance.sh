@@ -12,13 +12,32 @@ for deb in "${debs[@]}"; do
   arch="$(dpkg-deb -f "${deb}" Architecture)"
   [[ "${name}" == "xgc2-zenoh" ]] || { echo "unexpected package name ${name}" >&2; exit 1; }
   [[ "${arch}" == "arm64" || "${arch}" == "amd64" ]] || { echo "unexpected arch ${arch}" >&2; exit 1; }
+  suite="${version##*~}"
+  [[ "${suite}" == "bionic" || "${suite}" == "focal" || "${suite}" == "jammy" || "${suite}" == "noble" ]] || {
+    echo "unexpected suite suffix in ${version}" >&2; exit 1; }
   listing="$(dpkg-deb -c "${deb}")"
+  depends="$(dpkg-deb -f "${deb}" Depends)"
   grep -q './opt/xgc2/zenoh/include/zenoh.h$' <<<"${listing}" || { echo "missing zenoh.h in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/include/zenoh.hxx$' <<<"${listing}" || { echo "missing zenoh.hxx in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/libzenohc.so$' <<<"${listing}" || { echo "missing libzenohc.so in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/libzenohc.a$' <<<"${listing}" || { echo "missing libzenohc.a in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake$' <<<"${listing}" || { echo "missing zenohcConfig.cmake in ${deb}" >&2; exit 1; }
+  grep -q './opt/xgc2/zenoh/lib/cmake/zenohcxx/zenohcxxConfig.cmake$' <<<"${listing}" || { echo "missing zenohcxxConfig.cmake in ${deb}" >&2; exit 1; }
+  grep -q './usr/lib/cmake/zenohc/zenohcConfig.cmake$' <<<"${listing}" || { echo "missing zenohc forwarding stub in ${deb}" >&2; exit 1; }
+  grep -q './usr/lib/cmake/zenohcxx/zenohcxxConfig.cmake$' <<<"${listing}" || { echo "missing zenohcxx forwarding stub in ${deb}" >&2; exit 1; }
   grep -q './etc/ld.so.conf.d/xgc2-zenoh.conf$' <<<"${listing}" || { echo "missing ld.so.conf entry in ${deb}" >&2; exit 1; }
+  if [[ "${suite}" == "bionic" ]]; then
+    grep -qE '(^|, )libgcc1(,|$)' <<<"${depends}" || { echo "bionic package must depend on libgcc1" >&2; exit 1; }
+  else
+    grep -qE '(^|, )libgcc-s1(,|$)' <<<"${depends}" || { echo "${suite} package must depend on libgcc-s1" >&2; exit 1; }
+  fi
+  if [[ "${suite}" == "focal" ]]; then
+    grep -qE '(^|, )python3(,|$)' <<<"${depends}" || { echo "focal package must depend on python3" >&2; exit 1; }
+    grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}" || { echo "focal package missing Zenoh Python payload" >&2; exit 1; }
+  else
+    if grep -qE '(^|, )python3(,|$)' <<<"${depends}"; then echo "${suite} package must not depend on python3" >&2; exit 1; fi
+    if grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}"; then echo "${suite} package must not carry Zenoh Python payload" >&2; exit 1; fi
+  fi
   if grep -qE '\.(rs|toml)$' <<<"${listing}"; then echo "rust sources leaked into ${deb}" >&2; exit 1; fi
-  echo "compliance OK: ${name} ${version} ${arch}"
+  echo "compliance OK: ${name} ${version} ${arch} (${suite}, python=$(if [[ "${suite}" == "focal" ]]; then echo yes; else echo no; fi))"
 done

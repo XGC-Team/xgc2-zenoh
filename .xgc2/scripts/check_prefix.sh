@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 # Verification gates for a prepared zenoh prefix (see col/agy-zenoh-arm-supply-route.md §4).
-# usage: check_prefix.sh PREFIX [--arch amd64|arm64]
+# The glibc ceiling defaults to THIS container's own libc: the build runs inside the
+# target distro image, so an artifact may never require a newer glibc than the
+# distro ships. Pass --baseline (or ZENOH_GLIBC_BASELINE) to pin a stricter floor.
+# usage: check_prefix.sh PREFIX --arch amd64|arm64 [--baseline X.Y]
 set -euo pipefail
 
-prefix="${1:?usage: check_prefix.sh PREFIX [--arch amd64|arm64]}"
-arch="${2:+${2#--arch}}"
-arch="${arch:-arm64}"
+prefix=""; arch=""; baseline="${ZENOH_GLIBC_BASELINE:-}"
+while (( $# )); do
+  case "$1" in
+    --arch) arch="${2:?}"; shift 2 ;;
+    --baseline) baseline="${2:?}"; shift 2 ;;
+    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
+    *) if [[ -z "${prefix}" && "$1" != -* ]]; then prefix="$1"; shift; else echo "unknown option: $1" >&2; exit 2; fi ;;
+  esac
+done
+[[ -n "${prefix}" && -n "${arch}" ]] || { echo 'usage: check_prefix.sh PREFIX --arch amd64|arm64 [--baseline X.Y]' >&2; exit 2; }
 prefix="$(cd "${prefix}" && pwd -P)"
+if [[ -z "${baseline}" ]]; then
+  baseline="$(ldd --version 2>/dev/null | awk 'NR==1 { print $NF }')"
+fi
+[[ "${baseline}" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "cannot determine the glibc baseline (ldd gave '${baseline}')" >&2; exit 1; }
 
 fail() { echo "zenoh prefix check FAILED: $*" >&2; exit 1; }
 
@@ -27,7 +41,7 @@ esac
 
 highest="$(objdump -T "${prefix}/lib/libzenohc.so" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1)"
 [[ -n "${highest}" ]] || fail "no GLIBC version symbols found"
-python3 - "${highest#GLIBC_}" 2.31 <<'PY' || fail "required ${highest} exceeds the focal baseline GLIBC_2.31"
+python3 - "${highest#GLIBC_}" "${baseline}" <<'PY' || fail "required ${highest} exceeds this distro's baseline GLIBC_${baseline}"
 import sys
 need = tuple(int(x) for x in sys.argv[1].split('.'))
 base = tuple(int(x) for x in sys.argv[2].split('.'))

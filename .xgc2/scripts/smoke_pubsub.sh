@@ -1,18 +1,38 @@
 #!/usr/bin/env bash
-# Native pub/sub round trip against an INSTALLED zenoh prefix (same architecture).
-# Fails if the library does not load, does not link, or the payload round trip is lost.
-# The C below follows the zenoh-c 1.8 API: the subscriber callback is
-# (z_loaned_sample_t *, void *) and every owned value is moved with z_move().
+# Installed-artifact smoke: exercise the REAL consumer path — find_package(zenohc)
+# and find_package(zenohcxx) resolved through the deb's /usr/lib/cmake exposure,
+# link against the imported targets (no -I/-L bypass), then run a pub/sub round
+# trip and a zenoh.hxx session open. usage: smoke_pubsub.sh PREFIX
 set -euo pipefail
 prefix="${1:?usage: smoke_pubsub.sh PREFIX}"
 prefix="$(cd "${prefix}" && pwd -P)"
+[[ -f "${prefix}/lib/libzenohc.so" ]] || { echo "no installed libzenohc.so under ${prefix}" >&2; exit 1; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/zenoh-smoke.XXXXXX")"; trap 'rm -rf -- "${work}"' EXIT
+
+cat > "${work}/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.16)
+project(zenoh_installed_smoke C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Resolved only through the deb's /usr/lib/cmake forwarding stubs: this is the
+# consumer contract, so the gate must prove configure + link, not raw -I/-L.
+find_package(zenohc 1.8.0 EXACT CONFIG REQUIRED)
+find_package(zenohcxx 1.8.0 EXACT CONFIG REQUIRED)
+add_executable(zenoh_smoke smoke.c)
+target_link_libraries(zenoh_smoke PRIVATE zenohc::lib)
+add_executable(zenoh_static_smoke smoke.c)
+target_link_libraries(zenoh_static_smoke PRIVATE zenohc::static)
+add_executable(zenohcxx_smoke smoke.cxx)
+target_link_libraries(zenohcxx_smoke PRIVATE zenohcxx::zenohc)
+CMAKE
+
 cat > "${work}/smoke.c" <<'C'
 #include <zenoh.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
-static volatile int got = 0;
+static atomic_int got = 0;
 static char received[64];
 
 static void on_sample(z_loaned_sample_t *sample, void *context) {
@@ -25,7 +45,7 @@ static void on_sample(z_loaned_sample_t *sample, void *context) {
         received[len] = '\0';
     }
     z_drop(z_move(text));
-    got = 1;
+    atomic_store_explicit(&got, 1, memory_order_release);
 }
 
 int main(void) {
@@ -50,7 +70,7 @@ int main(void) {
         fprintf(stderr, "z_put failed\n"); return 6;
     }
 
-    for (int i = 0; i < 100 && !got; i++) { z_sleep_ms(50); }
+    for (int i = 0; i < 100 && !atomic_load_explicit(&got, memory_order_acquire); i++) { z_sleep_ms(50); }
     z_drop(z_move(sub));
     z_close(z_loan_mut(session), NULL);
     if (!got) { fprintf(stderr, "pub/sub round trip lost\n"); return 7; }
@@ -59,5 +79,24 @@ int main(void) {
     return 0;
 }
 C
-cc -O2 -I"${prefix}/include" "${work}/smoke.c" -o "${work}/smoke" -L"${prefix}/lib" -lzenohc -Wl,-rpath,"${prefix}/lib"
-"${work}/smoke"
+
+cat > "${work}/smoke.cxx" <<'CXX'
+// zenoh.hxx consumer check: the zenohcxx::zenohc target must supply include
+// dirs, the ZENOHCXX_ZENOHC define, and the zenohc::lib link transitively.
+#include <zenoh.hxx>
+int main(void) {
+    zenoh::ZResult err = -1;
+    zenoh::Config config = zenoh::Config::create_default();
+    zenoh::Session session = zenoh::Session::open(std::move(config),
+                                                  zenoh::Session::SessionOptions::create_default(), &err);
+    if (err != Z_OK) { return 1; }
+    return 0;
+}
+CXX
+
+cmake -S "${work}" -B "${work}/build" -DCMAKE_BUILD_TYPE=Release
+cmake --build "${work}/build" --parallel
+"${work}/build/zenoh_smoke"
+"${work}/build/zenoh_static_smoke"
+"${work}/build/zenohcxx_smoke" || { echo "zenohcxx session open failed" >&2; exit 1; }
+echo "zenoh cxx include/link/session OK"

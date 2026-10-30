@@ -3,23 +3,27 @@ id: xgc2-zenoh
 name: XGC2 zenoh SDK
 version: 1.8.0-1
 kind: toolchain-apt
-summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers, cross-built for
-  aarch64 (focal glibc 2.31) and built natively for amd64, for TRO onboard algorithm
-  and telemetry consumers.
+summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers, built natively
+  inside each distro/arch target container (bionic, focal, jammy, noble x amd64,
+  arm64), for TRO onboard algorithm and telemetry consumers.
 apt:
   # Real platform matrix. focal is the verified target (FS150-03, RK356x, glibc 2.31).
-  # bionic is an independently packaged runtime, never a host upgrade. jammy/noble
-  # entries stay declared but are OPEN until their native CI job has actually run.
+  # bionic is OPEN: zenoh-c 1.8.0 needs cmake >= 3.16 and the current
+  # xgc2-build-bionic-* images ship the distro cmake 3.10, so its cells fail
+  # explicitly at the build script's floor check until the xgc2-images toolchain
+  # supply lands (never a product-side bootstrap). jammy/noble entries stay
+  # declared but are OPEN until their native CI job has actually run.
   distribution: bionic,focal,jammy,noble
   install:
   - xgc2-zenoh
   packages:
   - xgc2-zenoh
+  # build_deb.sh is the authoritative Depends producer: it emits libgcc1 on
+  # bionic and libgcc-s1 elsewhere, and adds python3 only to the Focal package
+  # that stages the Python binding. Non-Focal packages are C-SDK-only.
   depends:
   - libc6
-  - libgcc-s1
   - libstdc++6
-  - python3
 # Python binding support matrix for the matching 1.8.0 binding. Only pairs listed
 # here may produce an artifact; every other runtime/arch pair must fail in CI.
 python_bindings: 3.8/arm64,3.8/amd64
@@ -32,17 +36,23 @@ usage:
   smoke_test: 'test -f /opt/xgc2/zenoh/include/zenoh.h && test -f /opt/xgc2/zenoh/include/zenoh.hxx
     && test -f /opt/xgc2/zenoh/lib/libzenohc.so && test -f /opt/xgc2/zenoh/lib/libzenohc.a
     && test -f /opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake
-    && python3 -c "import zenoh, sys; assert zenoh.__version__ >= \"1.8.0\", zenoh.__version__; print(\"zenoh python binding\", zenoh.__version__)"'
+    && test -f /opt/xgc2/zenoh/lib/cmake/zenohcxx/zenohcxxConfig.cmake
+    && d=$(mktemp -d) && printf "%s\n" "cmake_minimum_required(VERSION 3.16)" "project(p C CXX)" "find_package(zenohc 1.8.0 EXACT CONFIG REQUIRED)" "find_package(zenohcxx 1.8.0 EXACT CONFIG REQUIRED)" > "$d/CMakeLists.txt" && cmake -S "$d" -B "$d/build" && rm -rf "$d"'
   notes: 'TRO consumers pass -DTRO_ZENOH_PREFIX=/opt/xgc2/zenoh with -DTRO_WITH_ZENOH=ON;
     the composite links ${TRO_ZENOH_PREFIX}/lib/libzenohc.so by file path (no soname)
     and compiles ZENOHCXX_ZENOHC, so both the C library and the zenoh-cpp headers live
-    in this single prefix. Versions are frozen in zenoh.lock and must not be re-resolved.'
+    in this single prefix. Versions are frozen in zenoh.lock and must not be re-resolved.
+    The Focal package also carries the Python 3.8 binding and its python3 dependency;
+    non-Focal packages are C-SDK-only. The explicit Focal Python import metadata and
+    exact-payload interop gates run in CI/release after dpkg install.'
 ownership:
   paths:
   - /opt/xgc2/zenoh
   - /usr/lib/cmake/xgc2_zenoh
   - /usr/lib/cmake/zenohc
   - /usr/lib/cmake/zenohcxx
+  - /usr/lib/python3/dist-packages/zenoh
+  - /usr/lib/python3/dist-packages/eclipse_zenoh-1.8.0.dist-info
   - /etc/ld.so.conf.d/xgc2-zenoh.conf
 release:
   apt_versions:
