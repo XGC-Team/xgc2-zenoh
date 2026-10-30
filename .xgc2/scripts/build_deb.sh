@@ -48,6 +48,29 @@ pkg_root="${work}/${package_name}"
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}${install_prefix}" "${pkg_root}/usr/lib/cmake/${package_name}"
 cp -a "${prefix}/." "${pkg_root}${install_prefix}/"
 rm -f "${pkg_root}${install_prefix}/SHA256SUMS"
+# CMake packages are exposed at the product ownership paths too, so consumers can
+# find_package(zenohc) without knowing the TRO prefix layout.
+mkdir -p "${pkg_root}/usr/lib/cmake"
+for pkg in zenohc zenohcxx; do
+  if [[ -d "${prefix}/lib/cmake/${pkg}" ]]; then
+    cp -a "${prefix}/lib/cmake/${pkg}" "${pkg_root}/usr/lib/cmake/${pkg}"
+  fi
+done
+mkdir -p "${pkg_root}/etc/ld.so.conf.d"
+printf '%s\n' "${install_prefix}/lib" > "${pkg_root}/etc/ld.so.conf.d/xgc2-zenoh.conf"
+cat > "${pkg_root}/DEBIAN/postinst" <<'POST'
+#!/bin/sh
+set -e
+ldconfig 2>/dev/null || true
+exit 0
+POST
+cat > "${pkg_root}/DEBIAN/postrm" <<'POST'
+#!/bin/sh
+set -e
+ldconfig 2>/dev/null || true
+exit 0
+POST
+chmod 0755 "${pkg_root}/DEBIAN/postinst" "${pkg_root}/DEBIAN/postrm"
 
 cat > "${pkg_root}/DEBIAN/control" <<EOF
 Package: ${package_name}

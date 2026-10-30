@@ -16,6 +16,9 @@ for deb in "${debs[@]}"; do
   grep -q './opt/xgc2/zenoh/include/zenoh.h$' <<<"${listing}" || { echo "missing zenoh.h in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/include/zenoh.hxx$' <<<"${listing}" || { echo "missing zenoh.hxx in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/libzenohc.so$' <<<"${listing}" || { echo "missing libzenohc.so in ${deb}" >&2; exit 1; }
+  grep -q './opt/xgc2/zenoh/lib/libzenohc.a$' <<<"${listing}" || { echo "missing libzenohc.a in ${deb}" >&2; exit 1; }
+  grep -q './opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake$' <<<"${listing}" || { echo "missing zenohcConfig.cmake in ${deb}" >&2; exit 1; }
+  grep -q './etc/ld.so.conf.d/xgc2-zenoh.conf$' <<<"${listing}" || { echo "missing ld.so.conf entry in ${deb}" >&2; exit 1; }
   if grep -qE '\.(rs|toml)$' <<<"${listing}"; then echo "rust sources leaked into ${deb}" >&2; exit 1; fi
   echo "compliance OK: ${name} ${version} ${arch}"
 done

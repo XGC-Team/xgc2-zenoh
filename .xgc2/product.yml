@@ -7,7 +7,10 @@ summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers, cross-built fo
   aarch64 (focal glibc 2.31) and built natively for amd64, for TRO onboard algorithm
   and telemetry consumers.
 apt:
-  distribution: focal
+  # Real platform matrix. focal is the verified target (FS150-03, RK356x, glibc 2.31).
+  # bionic is an independently packaged runtime, never a host upgrade. jammy/noble
+  # entries stay declared but are OPEN until their native CI job has actually run.
+  distribution: bionic,focal,jammy,noble
   install:
   - xgc2-zenoh
   packages:
@@ -16,6 +19,10 @@ apt:
   - libc6
   - libgcc-s1
   - libstdc++6
+  - python3
+# Python binding support matrix for the matching 1.8.0 binding. Only pairs listed
+# here may produce an artifact; every other runtime/arch pair must fail in CI.
+python_bindings: 3.8/arm64,3.8/amd64
 usage:
   install: 'sudo apt update
 
@@ -23,7 +30,9 @@ usage:
 
     '
   smoke_test: 'test -f /opt/xgc2/zenoh/include/zenoh.h && test -f /opt/xgc2/zenoh/include/zenoh.hxx
-    && test -f /opt/xgc2/zenoh/lib/libzenohc.so'
+    && test -f /opt/xgc2/zenoh/lib/libzenohc.so && test -f /opt/xgc2/zenoh/lib/libzenohc.a
+    && test -f /opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake
+    && python3 -c "import zenoh, sys; assert zenoh.__version__ >= \"1.8.0\", zenoh.__version__; print(\"zenoh python binding\", zenoh.__version__)"'
   notes: 'TRO consumers pass -DTRO_ZENOH_PREFIX=/opt/xgc2/zenoh with -DTRO_WITH_ZENOH=ON;
     the composite links ${TRO_ZENOH_PREFIX}/lib/libzenohc.so by file path (no soname)
     and compiles ZENOHCXX_ZENOHC, so both the C library and the zenoh-cpp headers live
@@ -32,8 +41,14 @@ ownership:
   paths:
   - /opt/xgc2/zenoh
   - /usr/lib/cmake/xgc2_zenoh
+  - /usr/lib/cmake/zenohc
+  - /usr/lib/cmake/zenohcxx
+  - /etc/ld.so.conf.d/xgc2-zenoh.conf
 release:
   apt_versions:
+    bionic: 1.8.0-1~bionic
     focal: 1.8.0-1~focal
+    jammy: 1.8.0-1~jammy
+    noble: 1.8.0-1~noble
 conflicts:
   apt_packages: []

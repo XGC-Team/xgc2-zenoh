@@ -77,22 +77,18 @@ docker run --rm \
       build-essential cmake ninja-build curl unzip xz-utils ca-certificates git \
       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
 
-    # The image may already carry a rustc without the cross target std; both the
-    # toolchain version AND the target std are required, so check them separately.
-    if ! command -v rustc >/dev/null 2>&1 || ! rustc --version | grep -q "^rustc ${RUST_TOOLCHAIN}"; then
-      curl -fsSL "https://static.rust-lang.org/dist/rust-${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/rust.tar.xz
-      tar -C /tmp -xf /tmp/rust.tar.xz
-      "/tmp/rust-${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu/install.sh" --prefix=/opt/rust --disable-ldconfig --without=rust-docs >/dev/null
-      curl -fsSL "https://static.rust-lang.org/dist/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}.tar.xz" -o /tmp/rust-std.tar.xz
-      tar -C /tmp -xf /tmp/rust-std.tar.xz
-      "/tmp/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}/install.sh" --prefix=/opt/rust --disable-ldconfig >/dev/null
-    fi
-    if [[ ! -d "$(rustc --print sysroot)/lib/rustlib/${RUST_TARGET}" ]]; then
-      curl -fsSL "https://static.rust-lang.org/dist/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}.tar.xz" -o /tmp/rust-std.tar.xz
-      tar -C /tmp -xf /tmp/rust-std.tar.xz
-      "/tmp/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}/install.sh" --prefix=/opt/rust --disable-ldconfig >/dev/null
-    fi
-    test -d "$(rustc --print sysroot)/lib/rustlib/${RUST_TARGET}"
+    # The image ships a rustup toolchain whose sysroot has no cross target std, so
+    # the pinned standalone toolchain is installed unconditionally into /opt/rust
+    # and every later rustc call resolves to it.
+    curl -fsSL "https://static.rust-lang.org/dist/rust-${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/rust.tar.xz
+    tar -C /tmp -xf /tmp/rust.tar.xz
+    "/tmp/rust-${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu/install.sh" --prefix=/opt/rust --disable-ldconfig --without=rust-docs >/dev/null
+    curl -fsSL "https://static.rust-lang.org/dist/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}.tar.xz" -o /tmp/rust-std.tar.xz
+    tar -C /tmp -xf /tmp/rust-std.tar.xz
+    "/tmp/rust-std-${RUST_TOOLCHAIN}-${RUST_TARGET}/install.sh" --prefix=/opt/rust --disable-ldconfig >/dev/null
+    export PATH="/opt/rust/bin:${PATH}"
+    test -x /opt/rust/bin/rustc
+    test -d "/opt/rust/lib/rustlib/${RUST_TARGET}"
     export PATH="/opt/rust/bin:${PATH}"
 
     if [[ "${ZENOH_FETCH}" == "1" ]]; then

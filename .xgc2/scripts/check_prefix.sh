@@ -13,6 +13,9 @@ fail() { echo "zenoh prefix check FAILED: $*" >&2; exit 1; }
 [[ -f "${prefix}/include/zenoh.h" ]] || fail "missing include/zenoh.h"
 [[ -f "${prefix}/include/zenoh.hxx" ]] || fail "missing include/zenoh.hxx (zenoh-cpp 1.8.0 headers are required: composite compiles ZENOHCXX_ZENOHC)"
 [[ -f "${prefix}/lib/libzenohc.so" ]] || fail "missing lib/libzenohc.so"
+[[ -f "${prefix}/lib/libzenohc.a" ]] || fail "missing lib/libzenohc.a"
+[[ -f "${prefix}/lib/cmake/zenohc/zenohcConfig.cmake" ]] || fail "missing lib/cmake/zenohc/zenohcConfig.cmake"
+[[ -f "${prefix}/lib/cmake/zenohcxx/zenohcxxConfig.cmake" ]] || fail "missing lib/cmake/zenohcxx/zenohcxxConfig.cmake (zenoh-cpp 1.8.0 headers/CMake package required by ZENOHCXX_ZENOHC)"
 
 elf="$(readelf -h "${prefix}/lib/libzenohc.so")"
 grep -q 'Class:.*ELF64' <<<"${elf}" || fail "libzenohc.so is not ELF64"
