@@ -2,7 +2,9 @@
 # Installed-artifact smoke: exercise the REAL consumer path — find_package(zenohc)
 # and find_package(zenohcxx) resolved through the deb's /usr/lib/cmake exposure,
 # link against the imported targets (no -I/-L bypass), then run a pub/sub round
-# trip and a zenoh.hxx session open. usage: smoke_pubsub.sh PREFIX
+# trip, a zenoh.hxx session open, and a daemon check where that same C++ program
+# opens a client session against the installed zenohd's UDP endpoint.
+# usage: smoke_pubsub.sh PREFIX
 set -euo pipefail
 prefix="${1:?usage: smoke_pubsub.sh PREFIX}"
 prefix="$(cd "${prefix}" && pwd -P)"
@@ -92,10 +94,21 @@ C
 cat > "${work}/smoke.cxx" <<'CXX'
 // zenoh.hxx consumer check: the zenohcxx::zenohc target must supply include
 // dirs, the ZENOHCXX_ZENOHC define, and the zenohc::lib link transitively.
+// With an ENDPOINT argument it also acts as the client that proves the daemon
+// serves that endpoint: the open must establish the link or it fails.
 #include <zenoh.hxx>
-int main(void) {
+#include <string>
+int main(int argc, char **argv) {
     zenoh::ZResult err = -1;
     zenoh::Config config = zenoh::Config::create_default();
+    if (argc > 1) {
+        config.insert_json5("mode", "\"client\"");
+        config.insert_json5("connect/endpoints", std::string("[\"") + argv[1] + "\"]");
+        config.insert_json5("connect/timeout_ms", "5000");
+        config.insert_json5("connect/exit_on_failure", "true");
+        config.insert_json5("scouting/multicast/enabled", "false");
+        config.insert_json5("listen/endpoints", "[]");
+    }
     zenoh::Session session = zenoh::Session::open(std::move(config),
                                                   zenoh::Session::SessionOptions::create_default(), &err);
     if (err != Z_OK) { return 1; }
@@ -110,8 +123,9 @@ cmake --build "${work}/build" --parallel
 "${work}/build/zenohcxx_smoke" || { echo "zenohcxx session open failed" >&2; exit 1; }
 echo "zenoh cxx include/link/session OK"
 
-# Official zenohd from this same prefix: verify a real UDP router starts, reports
-# its listener and terminates on SIGTERM. A signal exit is the normal daemon exit.
+# Official zenohd from this same prefix: start a real UDP router, prove it with
+# an SDK client session linked to exactly that endpoint, then terminate it on
+# SIGTERM. A signal exit is the normal daemon exit.
 zenohd="${prefix}/bin/zenohd"
 [[ -x "${zenohd}" ]] || { echo "no installed bin/zenohd under ${prefix}" >&2; exit 1; }
 port="$(python3 - <<'PY'
@@ -122,25 +136,18 @@ print(sock.getsockname()[1])
 sock.close()
 PY
 )"
+endpoint="udp/127.0.0.1:${port}"
 zenohd_log="${work}/zenohd.log"
-"${zenohd}" --no-multicast-scouting -l "udp/127.0.0.1:${port}" >"${zenohd_log}" 2>&1 &
+"${zenohd}" --no-multicast-scouting -l "${endpoint}" >"${zenohd_log}" 2>&1 &
 zenohd_pid=$!
-ready=0
-for _ in $(seq 1 100); do
-  if ! kill -0 "${zenohd_pid}" 2>/dev/null; then
-    cat "${zenohd_log}" >&2
-    echo "zenohd exited before accepting a UDP listener" >&2
-    exit 1
-  fi
-  if grep -q "Zenoh can be reached at: udp/127.0.0.1:${port}" "${zenohd_log}"; then
-    ready=1
-    break
-  fi
-  sleep 0.1
-done
-if [[ "${ready}" != 1 ]]; then
+# Readiness is the client link itself, not a log line: the smoke client can only
+# exit 0 if the session connected to this endpoint within connect/timeout_ms.
+if ! "${work}/build/zenohcxx_smoke" "${endpoint}"; then
+  kill -TERM "${zenohd_pid}" 2>/dev/null || true
+  wait "${zenohd_pid}" 2>/dev/null || true
+  zenohd_pid=""
   cat "${zenohd_log}" >&2
-  echo "zenohd did not report its UDP listener" >&2
+  echo "zenohd did not accept an SDK client on ${endpoint}" >&2
   exit 1
 fi
 kill -TERM "${zenohd_pid}"
