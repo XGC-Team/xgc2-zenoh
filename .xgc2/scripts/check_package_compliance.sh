@@ -21,6 +21,7 @@ for deb in "${debs[@]}"; do
   grep -q './opt/xgc2/zenoh/include/zenoh.hxx$' <<<"${listing}" || { echo "missing zenoh.hxx in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/libzenohc.so$' <<<"${listing}" || { echo "missing libzenohc.so in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/libzenohc.a$' <<<"${listing}" || { echo "missing libzenohc.a in ${deb}" >&2; exit 1; }
+  grep -q './opt/xgc2/zenoh/bin/zenohd$' <<<"${listing}" || { echo "missing bin/zenohd in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake$' <<<"${listing}" || { echo "missing zenohcConfig.cmake in ${deb}" >&2; exit 1; }
   grep -q './opt/xgc2/zenoh/lib/cmake/zenohcxx/zenohcxxConfig.cmake$' <<<"${listing}" || { echo "missing zenohcxxConfig.cmake in ${deb}" >&2; exit 1; }
   grep -q './usr/lib/cmake/zenohc/zenohcConfig.cmake$' <<<"${listing}" || { echo "missing zenohc forwarding stub in ${deb}" >&2; exit 1; }

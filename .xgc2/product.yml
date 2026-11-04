@@ -1,11 +1,12 @@
 schema: xgc2.product.v1
 id: xgc2-zenoh
 name: XGC2 zenoh SDK
-version: 1.8.0-1
+version: 1.8.0-2
 kind: toolchain-apt
-summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers, built natively
-  inside each distro/arch target container (bionic, focal, jammy, noble x amd64,
-  arm64), for TRO onboard algorithm and telemetry consumers.
+summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers and the official
+  zenohd 1.8.0 router, built natively inside each distro/arch target container
+  (bionic, focal, jammy, noble x amd64, arm64), for TRO onboard algorithm and
+  telemetry consumers.
 apt:
   # Real platform matrix. focal is the verified target (FS150-03, RK356x, glibc 2.31).
   # bionic is OPEN: zenoh-c 1.8.0 needs cmake >= 3.16 and the current
@@ -34,6 +35,7 @@ usage:
 
     '
   smoke_test: 'test -f /opt/xgc2/zenoh/include/zenoh.h && test -f /opt/xgc2/zenoh/include/zenoh.hxx
+    && test -x /opt/xgc2/zenoh/bin/zenohd
     && test -f /opt/xgc2/zenoh/lib/libzenohc.so && test -f /opt/xgc2/zenoh/lib/libzenohc.a
     && test -f /opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake
     && test -f /opt/xgc2/zenoh/lib/cmake/zenohcxx/zenohcxxConfig.cmake
@@ -42,9 +44,12 @@ usage:
     the composite links ${TRO_ZENOH_PREFIX}/lib/libzenohc.so by file path (no soname)
     and compiles ZENOHCXX_ZENOHC, so both the C library and the zenoh-cpp headers live
     in this single prefix. Versions are frozen in zenoh.lock and must not be re-resolved.
-    The Focal package also carries the Python 3.8 binding and its python3 dependency;
-    non-Focal packages are C-SDK-only. The explicit Focal Python import metadata and
-    exact-payload interop gates run in CI/release after dpkg install.'
+    The same prefix also carries the official upstream zenohd 1.8.0 daemon at
+    bin/zenohd, built from the pinned zenoh source; it is not the experimental C++
+    router. The Focal package also carries the Python 3.8 binding and its python3
+    dependency; non-Focal packages are C-SDK-only. The explicit Focal Python import
+    metadata, exact-payload interop gates and zenohd UDP start/stop smoke run in
+    CI/release after dpkg install.'
 ownership:
   paths:
   - /opt/xgc2/zenoh
@@ -56,9 +61,9 @@ ownership:
   - /etc/ld.so.conf.d/xgc2-zenoh.conf
 release:
   apt_versions:
-    bionic: 1.8.0-1~bionic
-    focal: 1.8.0-1~focal
-    jammy: 1.8.0-1~jammy
-    noble: 1.8.0-1~noble
+    bionic: 1.8.0-2~bionic
+    focal: 1.8.0-2~focal
+    jammy: 1.8.0-2~jammy
+    noble: 1.8.0-2~noble
 conflicts:
   apt_packages: []

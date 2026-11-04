@@ -7,7 +7,16 @@ set -euo pipefail
 prefix="${1:?usage: smoke_pubsub.sh PREFIX}"
 prefix="$(cd "${prefix}" && pwd -P)"
 [[ -f "${prefix}/lib/libzenohc.so" ]] || { echo "no installed libzenohc.so under ${prefix}" >&2; exit 1; }
-work="$(mktemp -d "${TMPDIR:-/tmp}/zenoh-smoke.XXXXXX")"; trap 'rm -rf -- "${work}"' EXIT
+work="$(mktemp -d "${TMPDIR:-/tmp}/zenoh-smoke.XXXXXX")"
+zenohd_pid=""
+cleanup() {
+  if [[ -n "${zenohd_pid}" ]]; then
+    kill -TERM "${zenohd_pid}" 2>/dev/null || true
+    wait "${zenohd_pid}" 2>/dev/null || true
+  fi
+  rm -rf -- "${work}"
+}
+trap cleanup EXIT
 
 cat > "${work}/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.16)
@@ -100,3 +109,49 @@ cmake --build "${work}/build" --parallel
 "${work}/build/zenoh_static_smoke"
 "${work}/build/zenohcxx_smoke" || { echo "zenohcxx session open failed" >&2; exit 1; }
 echo "zenoh cxx include/link/session OK"
+
+# Official zenohd from this same prefix: verify a real UDP router starts, reports
+# its listener and terminates on SIGTERM. A signal exit is the normal daemon exit.
+zenohd="${prefix}/bin/zenohd"
+[[ -x "${zenohd}" ]] || { echo "no installed bin/zenohd under ${prefix}" >&2; exit 1; }
+port="$(python3 - <<'PY'
+import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PY
+)"
+zenohd_log="${work}/zenohd.log"
+"${zenohd}" --no-multicast-scouting -l "udp/127.0.0.1:${port}" >"${zenohd_log}" 2>&1 &
+zenohd_pid=$!
+ready=0
+for _ in $(seq 1 100); do
+  if ! kill -0 "${zenohd_pid}" 2>/dev/null; then
+    cat "${zenohd_log}" >&2
+    echo "zenohd exited before accepting a UDP listener" >&2
+    exit 1
+  fi
+  if grep -q "Zenoh can be reached at: udp/127.0.0.1:${port}" "${zenohd_log}"; then
+    ready=1
+    break
+  fi
+  sleep 0.1
+done
+if [[ "${ready}" != 1 ]]; then
+  cat "${zenohd_log}" >&2
+  echo "zenohd did not report its UDP listener" >&2
+  exit 1
+fi
+kill -TERM "${zenohd_pid}"
+set +e
+wait "${zenohd_pid}"
+status=$?
+set -e
+zenohd_pid=""
+if [[ "${status}" != 0 && "${status}" != 143 ]]; then
+  cat "${zenohd_log}" >&2
+  echo "zenohd exited with ${status}, expected 0 or SIGTERM 143" >&2
+  exit 1
+fi
+echo "zenohd UDP router start/stop OK (exit ${status})"

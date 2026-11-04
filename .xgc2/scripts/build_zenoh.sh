@@ -55,11 +55,12 @@ fi
 get() { sed -n "s/^$1=//p" "${lock}" | head -n 1; }
 zenoh_c_sha="$(get ZENOH_C_SHA)"; zenoh_c_archive_sha="$(get ZENOH_C_ARCHIVE_SHA256)"
 zenoh_rust_sha="$(get ZENOH_RUST_SHA)"
+zenoh_rust_archive_sha="$(get ZENOH_RUST_ARCHIVE_SHA256)"
 cargo_lock_sha="$(get CARGO_LOCK_SHA256)"; opaque_lock_sha="$(get OPAQUE_CARGO_LOCK_SHA256)"
 rust_toolchain="$(get RUST_TOOLCHAIN)"
 cpp_sha="$(get ZENOH_CPP_ARCHIVE_SHA256)"; cpp_version="$(get ZENOH_CPP_VERSION)"
-for value in "${zenoh_c_sha}" "${zenoh_c_archive_sha}" "${zenoh_rust_sha}" "${cargo_lock_sha}" \
-  "${opaque_lock_sha}" "${rust_toolchain}" "${cpp_sha}"; do
+for value in "${zenoh_c_sha}" "${zenoh_c_archive_sha}" "${zenoh_rust_sha}" "${zenoh_rust_archive_sha}" \
+  "${cargo_lock_sha}" "${opaque_lock_sha}" "${rust_toolchain}" "${cpp_sha}"; do
   [[ -n "${value}" ]] || { echo 'zenoh.lock is incomplete' >&2; exit 1; }
 done
 pinned_locks="${repo_root}/.xgc2/zenoh-c-1.8.0"
@@ -111,6 +112,16 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true
 export CARGO_BUILD_JOBS="${jobs}"
 cargo fetch --locked --manifest-path "${scratch}/source/Cargo.toml"
 cargo fetch --locked --manifest-path "${scratch}/source/build-resources/opaque-types/Cargo.toml"
+
+# The official zenohd daemon comes from the same pinned zenoh 1.8.0 upstream
+# source. Build it in this target container so focal/bionic payloads do not
+# inherit the newer glibc of an externally built release binary.
+curl --fail --location --retry 6 --retry-delay 3 --retry-connrefused --max-time 300 \
+  "https://codeload.github.com/eclipse-zenoh/zenoh/tar.gz/${zenoh_rust_sha}" -o "${scratch}/zenoh.tar.gz"
+printf '%s  %s\n' "${zenoh_rust_archive_sha}" "${scratch}/zenoh.tar.gz" | sha256sum --check --quiet
+mkdir "${scratch}/zenoh-src"
+tar -xzf "${scratch}/zenoh.tar.gz" -C "${scratch}/zenoh-src" --strip-components=1
+cargo fetch --locked --manifest-path "${scratch}/zenoh-src/Cargo.toml"
 export CARGO_NET_OFFLINE=true
 
 cmake -S "${scratch}/source" -B "${scratch}/build" -DCMAKE_BUILD_TYPE=Release \
@@ -139,6 +150,10 @@ sed -i \
   "${zenohcxx_config}"
 grep -q 'add_library(zenohcxx_zenohc INTERFACE IMPORTED GLOBAL)' "${zenohcxx_config}" || {
   echo 'failed to make the zenohcxx backend imported target GLOBAL' >&2; exit 1; }
+
+CARGO_BUILD_JOBS="${jobs}" cargo build --release --locked --offline \
+  --manifest-path "${scratch}/zenoh-src/Cargo.toml" --package zenohd
+install -D -m 0755 "${scratch}/zenoh-src/target/release/zenohd" "${prefix}/bin/zenohd"
 
 printf 'zenoh-c=1.8.0 source=%s zenoh=%s rust=%s arch=%s lock=%s opaque=%s glibc<=%s\n' \
   "${zenoh_c_sha}" "${zenoh_rust_sha}" "${rust_toolchain}" "${architecture}" \

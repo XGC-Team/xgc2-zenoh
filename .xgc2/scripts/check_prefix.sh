@@ -30,6 +30,7 @@ fail() { echo "zenoh prefix check FAILED: $*" >&2; exit 1; }
 [[ -f "${prefix}/lib/libzenohc.a" ]] || fail "missing lib/libzenohc.a"
 [[ -f "${prefix}/lib/cmake/zenohc/zenohcConfig.cmake" ]] || fail "missing lib/cmake/zenohc/zenohcConfig.cmake"
 [[ -f "${prefix}/lib/cmake/zenohcxx/zenohcxxConfig.cmake" ]] || fail "missing lib/cmake/zenohcxx/zenohcxxConfig.cmake (zenoh-cpp 1.8.0 headers/CMake package required by ZENOHCXX_ZENOHC)"
+[[ -x "${prefix}/bin/zenohd" ]] || fail "missing executable bin/zenohd"
 
 elf="$(readelf -h "${prefix}/lib/libzenohc.so")"
 grep -q 'Class:.*ELF64' <<<"${elf}" || fail "libzenohc.so is not ELF64"
@@ -38,6 +39,13 @@ case "${arch}" in
   amd64) grep -q 'Machine:.*X86-64' <<<"${elf}" || fail "libzenohc.so is not X86-64" ;;
   *) fail "unsupported arch ${arch}" ;;
 esac
+zenohd_elf="$(readelf -h "${prefix}/bin/zenohd")"
+grep -q 'Class:.*ELF64' <<<"${zenohd_elf}" || fail "bin/zenohd is not ELF64"
+case "${arch}" in
+  arm64) grep -q 'Machine:.*AArch64' <<<"${zenohd_elf}" || fail "bin/zenohd is not AArch64" ;;
+  amd64) grep -q 'Machine:.*X86-64' <<<"${zenohd_elf}" || fail "bin/zenohd is not X86-64" ;;
+esac
+"${prefix}/bin/zenohd" --version 2>/dev/null | grep -q '1\.8\.0' || fail "bin/zenohd is not 1.8.0"
 
 highest="$(objdump -T "${prefix}/lib/libzenohc.so" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1)"
 [[ -n "${highest}" ]] || fail "no GLIBC version symbols found"
@@ -52,7 +60,7 @@ echo "glibc highest required: ${highest} (baseline <= GLIBC_2.31)"
 if [[ -f "${prefix}/SHA256SUMS" ]]; then
   ( cd "${prefix}" && sha256sum --quiet -c SHA256SUMS ) || fail "SHA256SUMS mismatch"
 else
-  ( cd "${prefix}" && find include lib -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS )
+  ( cd "${prefix}" && find include lib bin -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS )
   echo "wrote SHA256SUMS"
 fi
 echo "zenoh prefix OK: ${prefix} (${arch})"
