@@ -1,10 +1,8 @@
 name: ci
 
-# Mirrors devops/products/common/acados/.github/workflows/ci.yml: native host
-# runners per architecture, the per-distribution builder image via `docker run`,
-# a real install + runtime smoke on the runner itself, and a trusted build
-# manifest that the central release-orchestrator consumes. No cross-built deb is
-# ever installed on a foreign architecture and nothing is masked.
+# Native builds and installed consumers use the matching versioned XGC2 image.
+# Focal/Python 3.8 and Noble/Python 3.12 use the system interpreter. Bionic
+# carries the image's locked standalone Python; Jammy retains its C SDK support.
 on:
   push:
     branches: [master]
@@ -13,25 +11,6 @@ on:
 
 permissions:
   contents: read
-
-# SUPPORT MATRIX (explicit, no fabricated passes)
-#   C SDK (libzenohc + zenoh-cpp headers): bionic, focal, jammy, noble x amd64, arm64.
-#     Every row builds natively inside its own distro container and installs +
-#     runs a pub/sub round trip there. A row is Open until its own CI job is
-#     green; nothing is masked.
-#   bionic -> OPEN (unmet toolchain gate, fails explicitly, never fake-passed):
-#     zenoh-c 1.8.0 requires cmake >= 3.16 while the current xgc2-build-bionic-*
-#     images ship the distro cmake 3.10, so the bionic cells fail at the build
-#     script's explicit cmake floor check. The fix is an xgc2-images toolchain
-#     supply, NOT a product-side bootstrap; the cells stay declared and red
-#     until the image carries a conforming cmake.
-#   Python consumer binding: only where a Python consumer actually exists.
-#     focal / py3.8 / amd64 and focal / py3.8 / arm64  -> supported (built + interop gate)
-#     bionic -> NO Python consumer (python3.6 only); the C SDK ships alone, and no
-#       rospy/runtime adaptation is fabricated here. If a bionic consumer is ever
-#       required, CI must supply that runtime formally.
-#     jammy / noble -> OPEN: no consumer runtime pinned yet; C SDK only.
-#   python consumer rows: focal only (see the matrix comment above)
 
 jobs:
   matrix:
@@ -44,17 +23,14 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           rows = []
-          # acados REAL native multiarch rows: the same image tag resolves per
-          # runner architecture, so an arm64 runner builds natively. bionic rows
-          # stay declared OPEN: they fail explicitly at the cmake floor until the
-          # xgc2-images bionic toolchain ships cmake >= 3.16 (image-side supply).
-          for distro, image in (
-              ("bionic", "ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.2"),
-              ("focal", "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0"),
-              ("jammy", "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0"),
-              ("noble", "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0"),
+          for distro, version in (
+              ("focal", "1.0.0"),
+              ("noble", "1.0.0"),
+              ("bionic", "1.0.5"),
+              ("jammy", "1.0.0"),
           ):
               for arch, runner in (("amd64", "ubuntu-latest"), ("arm64", "ubuntu-24.04-arm")):
+                  image = f"ghcr.io/xgc-team/xgc2-images/xgc2-build-{distro}-dev:{version}"
                   rows.append({"distribution": distro, "arch": arch, "runner": runner, "image": image})
           print("rows=" + json.dumps(rows))
           PY
@@ -70,48 +46,102 @@ jobs:
       - uses: actions/checkout@v4
       - name: verify frozen pins
         run: |
-          sha256sum -c <<<"$(sed -n 's/^CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/Cargo.lock"
-          sha256sum -c <<<"$(sed -n 's/^OPAQUE_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-c-1.8.0/opaque-Cargo.lock"
-          sha256sum -c <<<"$(sed -n 's/^ZENOH_PYTHON_PATCH_SHA256=//p' zenoh.lock)  .xgc2/zenoh-python-1.8.0/py38-abi3-and-pins.patch"
-          sha256sum -c <<<"$(sed -n 's/^ZENOH_PYTHON_CARGO_LOCK_SHA256=//p' zenoh.lock)  .xgc2/zenoh-python-1.8.0/Cargo.lock"
-      - name: build, package, install and run INSIDE the target container
+          source zenoh.lock
+          printf '%s  %s\n' \
+            "$OPAQUE_CARGO_LOCK_SHA256" ".xgc2/zenoh-c-${ZENOH_C_VERSION}/opaque-Cargo.lock" \
+            "$ZENOH_PYTHON_PATCH_SHA256" ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/py38-abi3-and-pins.patch" \
+            "$ZENOH_PYTHON_CARGO_LOCK_SHA256" ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/Cargo.lock" \
+            "$ZENOH_BIONIC_PYTHON_RUNTIME_LOCK_SHA256" ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime.lock" | sha256sum --check
+          source ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime.lock"
+          printf '%s  %s\n' \
+            "$XGC2_ZENOH_BIONIC_PYTHON_AMD64_METADATA_SHA256" ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime-metadata-amd64.json" \
+            "$XGC2_ZENOH_BIONIC_PYTHON_ARM64_METADATA_SHA256" ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime-metadata-arm64.json" | sha256sum --check
+          (cd ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime-licenses" && sha256sum --check SHA256SUMS)
+          test "$(git rev-parse HEAD:zenoh)" = "$ZENOH_RUST_SHA"
+          test "$(git rev-parse HEAD:zenoh-cpp)" = "$ZENOH_CPP_SHA"
+          test "$(git rev-parse HEAD:zenoh-python)" = "$ZENOH_PYTHON_SHA"
+      - name: build and package in the native target image
         run: |
-          install -d .ci/build-manifests
-          # Host supplies only the native architecture and Docker. Everything that
-          # proves the artifact (build, dpkg install, link, pub/sub, Python interop)
-          # runs inside the same distro+arch image, so a distro package is never
-          # validated on a newer host OS and Py3.8 is never proven by Py3.12.
+          install -d .ci/build-manifests .ci/evidence .ci/cargo
+          docker pull "${{ matrix.image }}"
+          docker image inspect "${{ matrix.image }}" > .ci/evidence/image.json
           docker run --rm --network host --entrypoint bash \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/w/.ci/cargo \
             --mount "type=bind,src=${PWD},dst=/w" -w /w \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
+            -e TARGET_ARCH="${{ matrix.arch }}" \
             "${{ matrix.image }}" -euo pipefail -c '
-              .xgc2/scripts/build_zenoh.sh --out /w/.ci/prefix --jobs "$(nproc)"
-              if [[ "${{ matrix.distribution }}" == "focal" ]]; then
-                .xgc2/scripts/build_python_binding.sh --python 3.8 --arch "${{ matrix.arch }}" --out /w/.ci/py
-                ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py .xgc2/scripts/build_deb.sh \
-                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
-              else
-                .xgc2/scripts/build_deb.sh \
-                  --prefix /w/.ci/prefix/zenoh-${{ matrix.arch }} --arch "${{ matrix.arch }}" --output /w/.ci/debs
+              test "$(dpkg --print-architecture)" = "$TARGET_ARCH"
+              source zenoh.lock
+              export RUSTUP_TOOLCHAIN="$RUST_TOOLCHAIN" CARGO_BUILD_JOBS="$(nproc)"
+              cat /etc/os-release
+              cmake --version
+              rustc --version
+              cargo --version
+              .xgc2/scripts/build_zenoh.sh --out /w/.ci/prefix --jobs "$CARGO_BUILD_JOBS"
+              case "$PACKAGE_DISTRIBUTION" in
+                focal) python_version=3.8 ;;
+                noble) python_version=3.12 ;;
+                bionic)
+                  python_version=3.12
+                  source ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime.lock"
+                  case "$TARGET_ARCH" in amd64) machine=x86_64 ;; arm64) machine=aarch64 ;; esac
+                  export PYO3_PYTHON="${UV_PYTHON_INSTALL_DIR}/cpython-${XGC2_ZENOH_BIONIC_PYTHON_VERSION}-linux-${machine}-gnu/bin/python3"
+                  export ZENOH_PYTHON_RUNTIME_DIR=/w/.ci/python-runtime
+                  mkdir "$ZENOH_PYTHON_RUNTIME_DIR"
+                  bash ".xgc2/zenoh-python-${ZENOH_PYTHON_VERSION}/bionic-runtime-stage.sh" "$ZENOH_PYTHON_RUNTIME_DIR"
+                  ;;
+                jammy) python_version="" ;;
+              esac
+              if [[ -n "$python_version" ]]; then
+                .xgc2/scripts/build_python_binding.sh --python "$python_version" --arch "$TARGET_ARCH" --out /w/.ci/py
+                export ZENOH_PYTHON_WHEEL_DIR=/w/.ci/py
               fi
-              dpkg -i /w/.ci/debs/*.deb
-              .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
-              if [[ "${{ matrix.distribution }}" == "focal" ]]; then
-                python3 -c "import importlib.metadata, sys, zenoh; v=importlib.metadata.version(\"eclipse-zenoh\"); assert v == \"1.8.0\", v; print(\"zenoh python binding\", v, \"on\", sys.version.split()[0])"
-                .xgc2/scripts/python_interop_gate.sh --prefix /opt/xgc2/zenoh --python 3.8
-              else
-                echo "C SDK only on ${{ matrix.distribution }} (no Python consumer)"
-              fi
-            '
-      - name: compliance
-        run: ./.xgc2/scripts/check_package_compliance.sh "$PWD/.ci/debs"
-      - name: host-side artifact and ABI facts only
+              .xgc2/scripts/build_deb.sh --prefix "/w/.ci/prefix/zenoh-${TARGET_ARCH}" --arch "$TARGET_ARCH" --output /w/.ci/debs
+              .xgc2/scripts/check_package_compliance.sh /w/.ci/debs
+            ' 2>&1 | tee .ci/evidence/build.log
+      - name: install the built package and exercise its C C++ daemon and Python consumers
         run: |
-          # The host never installs the package: it only verifies that the produced
-          # artifact carries the expected architecture and glibc baseline.
-          deb="$(ls "$PWD"/.ci/debs/*.deb | head -n1)"
-          test "$(dpkg-deb -f "${deb}" Architecture)" = "${{ matrix.arch }}"
-          echo "artifact: $(basename "${deb}")"
+          install_network=none
+          if [[ "${{ matrix.distribution }}" == bionic ]]; then install_network=bridge; fi
+          docker run --rm --network "$install_network" --entrypoint bash \
+            --mount "type=bind,src=${PWD},dst=/w,readonly" -w /w \
+            -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
+            -e TARGET_ARCH="${{ matrix.arch }}" \
+            "${{ matrix.image }}" -euo pipefail -c '
+              test "$(dpkg --print-architecture)" = "$TARGET_ARCH"
+              if [[ "$PACKAGE_DISTRIBUTION" == bionic ]]; then
+                # Install the built deb through its normal runtime Depends.
+                apt-get update
+                apt-get install -y --no-install-recommends /w/.ci/debs/*.deb
+              else
+                dpkg -i /w/.ci/debs/*.deb
+              fi
+              source zenoh.lock
+              case "$PACKAGE_DISTRIBUTION" in
+                focal) python_version=3.8 ;;
+                noble) python_version=3.12 ;;
+                bionic) python_version=3.12; export PYO3_PYTHON=/opt/xgc2/zenoh/bin/python ;;
+                jammy) python_version="" ;;
+              esac
+              .xgc2/scripts/smoke_pubsub.sh /opt/xgc2/zenoh
+              if [[ -n "$python_version" ]]; then
+                "${PYO3_PYTHON:-python3}" -c "import importlib.metadata, sys, zenoh; v=importlib.metadata.version(\"eclipse-zenoh\"); assert v == sys.argv[1], v; print(\"installed zenoh binding\", v, sys.version, zenoh.__file__)" "$ZENOH_PYTHON_VERSION"
+                if [[ "$PACKAGE_DISTRIBUTION" == bionic ]]; then
+                  "$PYO3_PYTHON" -c "import _tkinter, sysconfig; print(sysconfig.get_config_var(\"LIBDIR\"))"
+                  (cd /opt/xgc2/zenoh/python/share/licenses/python-build-standalone/licenses && sha256sum --check SHA256SUMS)
+                fi
+                .xgc2/scripts/python_interop_gate.sh --prefix /opt/xgc2/zenoh --python "$python_version"
+              else
+                echo "Jammy retains C SDK and daemon-only support"
+              fi
+            ' 2>&1 | tee .ci/evidence/installed.log
+      - name: artifact architecture
+        run: |
+          for deb in .ci/debs/*.deb; do
+            test "$(dpkg-deb -f "$deb" Architecture)" = "${{ matrix.arch }}"
+            sha256sum "$deb"
+          done
       - name: trusted build manifest
         run: |
           python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
@@ -127,3 +157,11 @@ jobs:
           path: |
             .ci/debs/*.deb
             .ci/build-manifests/*
+      - name: preserve build and installed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenoh-evidence-${{ matrix.distribution }}-${{ matrix.arch }}
+          path: |
+            .ci/evidence/*
+            .ci/prefix/build-locks/**/*

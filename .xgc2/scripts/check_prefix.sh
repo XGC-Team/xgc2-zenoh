@@ -25,11 +25,11 @@ fi
 fail() { echo "zenoh prefix check FAILED: $*" >&2; exit 1; }
 
 [[ -f "${prefix}/include/zenoh.h" ]] || fail "missing include/zenoh.h"
-[[ -f "${prefix}/include/zenoh.hxx" ]] || fail "missing include/zenoh.hxx (zenoh-cpp 1.8.0 headers are required: composite compiles ZENOHCXX_ZENOHC)"
+[[ -f "${prefix}/include/zenoh.hxx" ]] || fail "missing include/zenoh.hxx (zenoh-cpp 1.10.2 headers are required: composite compiles ZENOHCXX_ZENOHC)"
 [[ -f "${prefix}/lib/libzenohc.so" ]] || fail "missing lib/libzenohc.so"
 [[ -f "${prefix}/lib/libzenohc.a" ]] || fail "missing lib/libzenohc.a"
 [[ -f "${prefix}/lib/cmake/zenohc/zenohcConfig.cmake" ]] || fail "missing lib/cmake/zenohc/zenohcConfig.cmake"
-[[ -f "${prefix}/lib/cmake/zenohcxx/zenohcxxConfig.cmake" ]] || fail "missing lib/cmake/zenohcxx/zenohcxxConfig.cmake (zenoh-cpp 1.8.0 headers/CMake package required by ZENOHCXX_ZENOHC)"
+[[ -f "${prefix}/lib/cmake/zenohcxx/zenohcxxConfig.cmake" ]] || fail "missing lib/cmake/zenohcxx/zenohcxxConfig.cmake (zenoh-cpp 1.10.2 headers/CMake package required by ZENOHCXX_ZENOHC)"
 [[ -x "${prefix}/bin/zenohd" ]] || fail "missing executable bin/zenohd"
 
 elf="$(readelf -h "${prefix}/lib/libzenohc.so")"
@@ -45,22 +45,20 @@ case "${arch}" in
   arm64) grep -q 'Machine:.*AArch64' <<<"${zenohd_elf}" || fail "bin/zenohd is not AArch64" ;;
   amd64) grep -q 'Machine:.*X86-64' <<<"${zenohd_elf}" || fail "bin/zenohd is not X86-64" ;;
 esac
-"${prefix}/bin/zenohd" --version 2>/dev/null | grep -q '1\.8\.0' || fail "bin/zenohd is not 1.8.0"
+"${prefix}/bin/zenohd" --version 2>/dev/null | grep -q '1\.10\.2' || fail "bin/zenohd is not 1.10.2"
 
-highest="$(objdump -T "${prefix}/lib/libzenohc.so" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1)"
-[[ -n "${highest}" ]] || fail "no GLIBC version symbols found"
-python3 - "${highest#GLIBC_}" "${baseline}" <<'PY' || fail "required ${highest} exceeds this distro's baseline GLIBC_${baseline}"
-import sys
-need = tuple(int(x) for x in sys.argv[1].split('.'))
-base = tuple(int(x) for x in sys.argv[2].split('.'))
-sys.exit(0 if need <= base else 1)
-PY
-echo "glibc highest required: ${highest} (baseline <= GLIBC_2.31)"
+for relative in lib/libzenohc.so bin/zenohd; do
+  highest="$(objdump -T "${prefix}/${relative}" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1)"
+  [[ -n "${highest}" ]] || fail "no GLIBC version symbols found in ${relative}"
+  dpkg --compare-versions "${highest#GLIBC_}" le "${baseline}" || \
+    fail "${relative} requires ${highest}, above this distro's GLIBC_${baseline}"
+  echo "${relative}: highest required ${highest} (baseline <= GLIBC_${baseline})"
+done
 
 if [[ -f "${prefix}/SHA256SUMS" ]]; then
   ( cd "${prefix}" && sha256sum --quiet -c SHA256SUMS ) || fail "SHA256SUMS mismatch"
 else
-  ( cd "${prefix}" && find include lib bin -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS )
+  ( cd "${prefix}" && find include lib bin share -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS )
   echo "wrote SHA256SUMS"
 fi
 echo "zenoh prefix OK: ${prefix} (${arch})"

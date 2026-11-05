@@ -1,33 +1,22 @@
 schema: xgc2.product.v1
 id: xgc2-zenoh
-name: XGC2 zenoh SDK
-version: 1.8.0-2
+name: XGC2 Zenoh SDK
+version: 1.10.2-1
 kind: toolchain-apt
-summary: Pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers and the official
-  zenohd 1.8.0 router, built natively inside each distro/arch target container
-  (bionic, focal, jammy, noble x amd64, arm64), for TRO onboard algorithm and
-  telemetry consumers.
+summary: Official Zenoh 1.10.2 C/C++ SDK and zenohd built from locked source
+  in each target distribution and architecture, with the matching Python binding.
 apt:
-  # Real platform matrix. focal is the verified target (FS150-03, RK356x, glibc 2.31).
-  # bionic is OPEN: zenoh-c 1.8.0 needs cmake >= 3.16 and the current
-  # xgc2-build-bionic-* images ship the distro cmake 3.10, so its cells fail
-  # explicitly at the build script's floor check until the xgc2-images toolchain
-  # supply lands (never a product-side bootstrap). jammy/noble entries stay
-  # declared but are OPEN until their native CI job has actually run.
   distribution: bionic,focal,jammy,noble
   install:
   - xgc2-zenoh
   packages:
   - xgc2-zenoh
-  # build_deb.sh is the authoritative Depends producer: it emits libgcc1 on
-  # bionic and libgcc-s1 elsewhere, and adds python3 only to the Focal package
-  # that stages the Python binding. Non-Focal packages are C-SDK-only.
+  # build_deb.sh selects libgcc1 on Bionic and libgcc-s1 elsewhere. Focal and
+  # Noble use their system Python; Bionic owns an isolated CPython prefix.
+  # Jammy retains its existing C SDK/daemon-only support.
   depends:
   - libc6
   - libstdc++6
-# Python binding support matrix for the matching 1.8.0 binding. Only pairs listed
-# here may produce an artifact; every other runtime/arch pair must fail in CI.
-# The executable binding matrix is pinned in zenoh.lock (ZENOH_PYTHON_BINDINGS).
 usage:
   install: 'sudo apt update
 
@@ -39,17 +28,16 @@ usage:
     && test -f /opt/xgc2/zenoh/lib/libzenohc.so && test -f /opt/xgc2/zenoh/lib/libzenohc.a
     && test -f /opt/xgc2/zenoh/lib/cmake/zenohc/zenohcConfig.cmake
     && test -f /opt/xgc2/zenoh/lib/cmake/zenohcxx/zenohcxxConfig.cmake
-    && d=$(mktemp -d) && printf "%s\n" "cmake_minimum_required(VERSION 3.16)" "project(p C CXX)" "find_package(zenohc 1.8.0 EXACT CONFIG REQUIRED)" "find_package(zenohcxx 1.8.0 EXACT CONFIG REQUIRED)" > "$d/CMakeLists.txt" && cmake -S "$d" -B "$d/build" && rm -rf "$d"'
-  notes: 'TRO consumers pass -DTRO_ZENOH_PREFIX=/opt/xgc2/zenoh with -DTRO_WITH_ZENOH=ON;
-    the composite links ${TRO_ZENOH_PREFIX}/lib/libzenohc.so by file path (no soname)
-    and compiles ZENOHCXX_ZENOHC, so both the C library and the zenoh-cpp headers live
-    in this single prefix. Versions are frozen in zenoh.lock and must not be re-resolved.
-    The same prefix also carries the official upstream zenohd 1.8.0 daemon at
-    bin/zenohd, built from the pinned zenoh source; it is not the experimental C++
-    router. The Focal package also carries the Python 3.8 binding and its python3
-    dependency; non-Focal packages are C-SDK-only. The explicit Focal Python import
-    metadata, exact-payload interop gates and zenohd UDP start/stop smoke run in
-    CI/release after dpkg install.'
+    && d=$(mktemp -d) && printf "%s\n" "cmake_minimum_required(VERSION 3.16)" "project(p C CXX)" "find_package(zenohc 1.10.2 EXACT CONFIG REQUIRED)" "find_package(zenohcxx 1.10.2 EXACT CONFIG REQUIRED)" > "$d/CMakeLists.txt" && cmake -S "$d" -B "$d/build" && rm -rf "$d"'
+  notes: 'The C/C++ SDK and official zenohd share /opt/xgc2/zenoh. Sources,
+    archive hashes, Cargo locks and compiler identity are recorded in zenoh.lock.
+    Native builds preserve the target distribution GLIBC baseline. The installed
+    C++ CMake export supports CMake 3.16 imported-target aliases. Focal uses system
+    Python 3.8 and Noble system Python 3.12; Bionic carries its separate CPython
+    3.12.12 at /opt/xgc2/zenoh/python with /opt/xgc2/zenoh/bin/python as the explicit
+    entry, leaving system Python 3.6 unchanged. Jammy remains C SDK/daemon-only.
+    Installed C/C++ pub/sub, router lifecycle and Python interoperability are
+    exercised in the matching distribution containers.'
 ownership:
   paths:
   - /opt/xgc2/zenoh
@@ -57,13 +45,13 @@ ownership:
   - /usr/lib/cmake/zenohc
   - /usr/lib/cmake/zenohcxx
   - /usr/lib/python3/dist-packages/zenoh
-  - /usr/lib/python3/dist-packages/eclipse_zenoh-1.8.0.dist-info
+  - /usr/lib/python3/dist-packages/eclipse_zenoh-1.10.2.dist-info
   - /etc/ld.so.conf.d/xgc2-zenoh.conf
 release:
   apt_versions:
-    bionic: 1.8.0-2~bionic
-    focal: 1.8.0-2~focal
-    jammy: 1.8.0-2~jammy
-    noble: 1.8.0-2~noble
+    bionic: 1.10.2-1~bionic
+    focal: 1.10.2-1~focal
+    jammy: 1.10.2-1~jammy
+    noble: 1.10.2-1~noble
 conflicts:
   apt_packages: []

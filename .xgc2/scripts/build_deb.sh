@@ -82,32 +82,45 @@ if [[ -d "${pkg_root}${install_prefix}/lib/cmake/zenohc" ]]; then
 fi
 mkdir -p "${pkg_root}/etc/ld.so.conf.d"
 printf '%s\n' "${install_prefix}/lib" > "${pkg_root}/etc/ld.so.conf.d/xgc2-zenoh.conf"
-# The matching zenoh-python 1.8.0 binding is Focal-only: non-Focal suites are
-# C-SDK-only and must not carry Python payload or a python3 dependency.
+# Focal/Noble bind their system interpreter. Bionic carries the separately
+# qualified private runtime; Jammy retains its existing C SDK/daemon payload.
 python_dep=""
-if [[ -n "${ZENOH_PYTHON_WHEEL_DIR:-}" ]]; then
-  [[ "${distribution}" == "focal" ]] || {
-    echo "python wheel is Focal-only; ${distribution} must be built without ZENOH_PYTHON_WHEEL_DIR" >&2; exit 1; }
+case "${distribution}" in
+  focal|noble)
+    site="${pkg_root}/usr/lib/python3/dist-packages"
+    python_dep=", python3"
+    ;;
+  bionic)
+    runtime="${ZENOH_PYTHON_RUNTIME_DIR:?Bionic requires the qualified private Python runtime prefix}"
+    [[ -x "${runtime}/bin/python3" ]] || { echo "missing private Python interpreter: ${runtime}" >&2; exit 1; }
+    cp -a "${runtime}" "${pkg_root}${install_prefix}/python"
+    mkdir -p "${pkg_root}${install_prefix}/bin"
+    ln -s ../python/bin/python3 "${pkg_root}${install_prefix}/bin/python"
+    site="${pkg_root}${install_prefix}/python/lib/python3.12/site-packages"
+    python_dep=", libtcl8.6, libtk8.6"
+    ;;
+  jammy)
+    [[ -z "${ZENOH_PYTHON_WHEEL_DIR:-}" && -z "${ZENOH_PYTHON_RUNTIME_DIR:-}" ]] || {
+      echo 'Jammy has no declared Python binding; unexpected Python staging input' >&2; exit 1; }
+    ;;
+esac
+if [[ "${distribution}" != jammy ]]; then
+  wheel_dir="${ZENOH_PYTHON_WHEEL_DIR:?This suite requires its matching Python wheel}"
   shopt -s nullglob
-  wheels=("${ZENOH_PYTHON_WHEEL_DIR}"/*.whl)
-  (( ${#wheels[@]} == 1 )) || { echo "expected exactly one python wheel in ${ZENOH_PYTHON_WHEEL_DIR}, got ${#wheels[@]}" >&2; exit 1; }
-  case "${arch}" in
-    amd64) pyarch=x86_64 ;;
-    arm64) pyarch=aarch64 ;;
-    *) echo "unsupported python wheel architecture ${arch}" >&2; exit 1 ;;
-  esac
-  unzip -p "${wheels[0]}" '*.dist-info/WHEEL' | grep -q "Tag: cp38-abi3-linux_${pyarch}" || {
-    echo "python wheel is not cp38-abi3-linux_${pyarch}: ${wheels[0]}" >&2; exit 1; }
-  # Stage the binding as ordinary dpkg-owned files (acados template shape): no
-  # wheel shell left in the payload and no pip run at postinst time.
-  site="${pkg_root}/usr/lib/python3/dist-packages"
+  wheels=("${wheel_dir}"/*.whl)
+  (( ${#wheels[@]} == 1 )) || { echo "expected one Python wheel in ${wheel_dir}" >&2; exit 1; }
+  case "${arch}" in amd64) pyarch=x86_64 ;; arm64) pyarch=aarch64 ;; esac
+  unzip -p "${wheels[0]}" '*.dist-info/WHEEL' | grep -x "Tag: cp38-abi3-linux_${pyarch}" >/dev/null || {
+    echo "Python wheel is not cp38-abi3-linux_${pyarch}: ${wheels[0]}" >&2; exit 1; }
+  python_version="$(sed -n 's/^ZENOH_PYTHON_VERSION=//p' "${repo_root}/zenoh.lock")"
+  unzip -p "${wheels[0]}" '*.dist-info/METADATA' | grep -x "Version: ${python_version}" >/dev/null || {
+    echo "Python wheel does not match locked version ${python_version}" >&2; exit 1; }
   mkdir -p "${site}"
   wheel_root="$(mktemp -d)"
-  ( cd "${wheel_root}" && unzip -q "${wheels[0]}" ) || { echo "cannot unpack ${wheels[0]}" >&2; exit 1; }
-  [[ -d "${wheel_root}/zenoh" ]] || { echo "wheel has no zenoh package" >&2; exit 1; }
+  ( cd "${wheel_root}" && unzip -q "${wheels[0]}" )
+  [[ -d "${wheel_root}/zenoh" ]] || { echo 'wheel has no zenoh package' >&2; exit 1; }
   cp -a "${wheel_root}/zenoh" "${site}/"
   for dist in "${wheel_root}"/*.dist-info; do [[ -d "${dist}" ]] && cp -a "${dist}" "${site}/"; done
-  python_dep=", python3"
 fi
 cat > "${pkg_root}/DEBIAN/postinst" <<'POST'
 #!/bin/sh
@@ -133,7 +146,7 @@ Maintainer: XGC Team <dev@xgc.team>
 Section: libs
 Priority: optional
 Depends: ${depends}
-Description: XGC2 zenoh SDK (pinned zenoh-c 1.8.0 C SDK with zenoh-cpp 1.8.0 headers)
+Description: XGC2 zenoh SDK (pinned Zenoh 1.10.2 C/C++ SDK and official router)
  Frozen upstream pins: zenoh-c $(sed -n 's/^ZENOH_C_SHA=//p' "${repo_root}/zenoh.lock") ,
  zenoh $(sed -n 's/^ZENOH_RUST_SHA=//p' "${repo_root}/zenoh.lock") , Rust
  $(sed -n 's/^RUST_TOOLCHAIN=//p' "${repo_root}/zenoh.lock") , built natively for

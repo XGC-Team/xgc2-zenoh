@@ -27,8 +27,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Resolved only through the deb's /usr/lib/cmake forwarding stubs: this is the
 # consumer contract, so the gate must prove configure + link, not raw -I/-L.
-find_package(zenohc 1.8.0 EXACT CONFIG REQUIRED)
-find_package(zenohcxx 1.8.0 EXACT CONFIG REQUIRED)
+find_package(zenohc 1.10.2 EXACT CONFIG REQUIRED)
+find_package(zenohcxx 1.10.2 EXACT CONFIG REQUIRED)
 add_executable(zenoh_smoke smoke.c)
 target_link_libraries(zenoh_smoke PRIVATE zenohc::lib)
 add_executable(zenoh_static_smoke smoke.c)

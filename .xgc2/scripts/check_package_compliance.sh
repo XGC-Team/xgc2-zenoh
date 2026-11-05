@@ -32,13 +32,25 @@ for deb in "${debs[@]}"; do
   else
     grep -qE '(^|, )libgcc-s1(,|$)' <<<"${depends}" || { echo "${suite} package must depend on libgcc-s1" >&2; exit 1; }
   fi
-  if [[ "${suite}" == "focal" ]]; then
-    grep -qE '(^|, )python3(,|$)' <<<"${depends}" || { echo "focal package must depend on python3" >&2; exit 1; }
-    grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}" || { echo "focal package missing Zenoh Python payload" >&2; exit 1; }
-  else
-    if grep -qE '(^|, )python3(,|$)' <<<"${depends}"; then echo "${suite} package must not depend on python3" >&2; exit 1; fi
-    if grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}"; then echo "${suite} package must not carry Zenoh Python payload" >&2; exit 1; fi
-  fi
+  case "${suite}" in
+    focal|noble)
+      grep -qE '(^|, )python3(,|$)' <<<"${depends}" || { echo "${suite} package must depend on python3" >&2; exit 1; }
+      grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}" || { echo "${suite} package lacks its system Python binding" >&2; exit 1; }
+      ;;
+    bionic)
+      for dependency in libtcl8.6 libtk8.6; do
+        grep -qE "(^|, )${dependency}(,|$)" <<<"${depends}" || { echo "Bionic runtime lacks ${dependency} Depends" >&2; exit 1; }
+      done
+      if grep -qE '(^|, )python3(,|$)' <<<"${depends}"; then echo 'Bionic must not claim the system Python 3.6 binding' >&2; exit 1; fi
+      grep -q './opt/xgc2/zenoh/bin/python -> ../python/bin/python3$' <<<"${listing}" || { echo 'Bionic lacks its explicit private Python entry' >&2; exit 1; }
+      grep -q './opt/xgc2/zenoh/python/lib/python3.12/site-packages/zenoh/' <<<"${listing}" || { echo 'Bionic lacks its private Python binding' >&2; exit 1; }
+      if grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}"; then echo 'Bionic overwrites system Python with Zenoh' >&2; exit 1; fi
+      ;;
+    jammy)
+      if grep -qE '(^|, )python3(,|$)' <<<"${depends}"; then echo 'Jammy C SDK package must not depend on python3' >&2; exit 1; fi
+      if grep -q './usr/lib/python3/dist-packages/zenoh/' <<<"${listing}"; then echo 'Jammy carries undeclared Python payload' >&2; exit 1; fi
+      ;;
+  esac
   if grep -qE '\.(rs|toml)$' <<<"${listing}"; then echo "rust sources leaked into ${deb}" >&2; exit 1; fi
-  echo "compliance OK: ${name} ${version} ${arch} (${suite}, python=$(if [[ "${suite}" == "focal" ]]; then echo yes; else echo no; fi))"
+  echo "compliance OK: ${name} ${version} ${arch} (${suite}, python=$(if [[ "${suite}" != "jammy" ]]; then echo yes; else echo no; fi))"
 done
