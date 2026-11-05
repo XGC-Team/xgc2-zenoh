@@ -1,0 +1,30 @@
+# Zenoh Python 1.10.2: target abi3-py38, pin the shared Zenoh revision,
+# and use the existing pinned maturin build frontend.
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -43,11 +43,11 @@
+ 
+ [dependencies]
+ paste = "1.0.14"
+-pyo3 = { version = "0.25.1", features = ["abi3-py39", "extension-module"] }
+-zenoh = { version = "1.10.2", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "release/1.10.2", features = [
++pyo3 = { version = "0.25.1", features = ["abi3-py38", "extension-module"] }
++zenoh = { version = "1.10.2", git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "cc839802639e3b7ebea50990f7a819fe8990b0fe", features = [
+   "internal",
+   "unstable",
+ ], default-features = false }
+-zenoh-ext = { version = "1.10.2", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "release/1.10.2", features = [
++zenoh-ext = { version = "1.10.2", git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "cc839802639e3b7ebea50990f7a819fe8990b0fe", features = [
+   "internal",
+ ], optional = true }
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,7 @@
+ #
+ 
+ [build-system]
+-requires = ["maturin>1"]
++requires = ["maturin==1.12.6"]
+ build-backend = "maturin"
+ 
+ [project]

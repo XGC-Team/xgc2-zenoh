@@ -1,0 +1,30 @@
+# uv's installed standalone CPython release; used only while building the
+# Bionic package.  The package does not download Python during installation.
+XGC2_ZENOH_BIONIC_PYTHON_VERSION=3.12.12
+XGC2_ZENOH_BIONIC_PYTHON_BUILD=20251217
+XGC2_ZENOH_BIONIC_PYTHON_PREFIX=/opt/xgc2/zenoh/python
+XGC2_ZENOH_BIONIC_PYTHON_SOURCE=https://github.com/astral-sh/python-build-standalone/releases/tag/20251217
+
+# Exact uv-selected install_only_stripped archives and critical runtime files.
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_ARCHIVE=https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12%2B20251217-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_ARCHIVE_SHA256=9f5474351378aeca746ee8a2ff3b187edec71d791ef92827eca14ab5b0e15441
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_EXEC_SHA256=cc8522e13ca1c114e1fd116948b2e6b43b031f85ca42f1b25dee62807e553ee1
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_LIB_SHA256=780787fd75565776e2ceb4d8406b80ae22d51a6244d4976f0f101233e6ad69bc
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_ARCHIVE=https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12%2B20251217-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_ARCHIVE_SHA256=6b9dfd582900666c42baef1ad495fa68948964a8bff0dc3bccd0393febc2de7b
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_EXEC_SHA256=5566b9246f35fb92c24ad712137e6ea2d70eeaa09ba14c59f4bcb03b6d4c93a5
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_LIB_SHA256=1a073edff8bdc89d49d75ee50cf3db8d101b05ecea51a225f38c4fa0288f238e
+
+# Official full archives contain build metadata and third-party licenses that
+# install_only omits. Their license files match across these two architectures.
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_FULL=https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12%2B20251217-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_FULL_SHA256=493bbbe7b51d657e6efd26f9e30a86829191e29a2dcc2b1d4be4a88f75d4f0de
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_FULL=https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12%2B20251217-aarch64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_FULL_SHA256=8dc11a776aab181136195769fa30ff7c091b60fb10b43016a49fb5dc4516ef43
+XGC2_ZENOH_BIONIC_PYTHON_AMD64_METADATA_SHA256=f68a8038e8e61928b61e0fcc944f263b5edcdee1252ee7e9d28c1cea807251b2
+XGC2_ZENOH_BIONIC_PYTHON_ARM64_METADATA_SHA256=cb1da6d0abcf95b2a3c01639502fee970482fdc581553b375628d2443c311bf6
+# Upstream metadata refers to LICENSE.zlib-ng.txt but omits it from the full
+# archives. This is the exact CPython source-deps archive and license file.
+XGC2_ZENOH_BIONIC_ZLIB_NG_SOURCE=https://github.com/python/cpython-source-deps/archive/refs/tags/zlib-ng-2.2.4.tar.gz
+XGC2_ZENOH_BIONIC_ZLIB_NG_ARCHIVE_SHA256=00bbd88709bc416cb96160ab61d3e1c8f76e106799af7328d0fe434dc7dd5004
+XGC2_ZENOH_BIONIC_ZLIB_NG_LICENSE_SHA256=6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee
